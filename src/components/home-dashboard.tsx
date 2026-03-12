@@ -58,20 +58,11 @@ interface HomeDashboardProps {
   today: string;
 }
 
-function MetricTile({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[20px] border border-black/10 bg-white/70 px-4 py-4">
-      <div className="text-[11px] uppercase tracking-[0.28em] text-black/40">{label}</div>
-      <div className="mt-2 text-xl font-semibold text-[#151811]">{value}</div>
-    </div>
-  );
-}
-
 export function HomeDashboard({ snapshot, today }: HomeDashboardProps) {
   const [brief, setBrief] = useState(snapshot.recentBrief);
   const [reports, setReports] = useState(snapshot.recentReports);
-  const [proposals, setProposals] = useState(snapshot.proposals);
-  const [summaries, setSummaries] = useState(snapshot.summaries);
+  const [, setProposals] = useState(snapshot.proposals);
+  const [, setSummaries] = useState(snapshot.summaries);
   const [question, setQuestion] = useState(snapshot.recentBrief?.userQuestion ?? "今天怎么练怎么吃");
   const [constraints, setConstraints] = useState(snapshot.recentBrief?.optionalConstraints ?? "");
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -82,8 +73,6 @@ export function HomeDashboard({ snapshot, today }: HomeDashboardProps) {
 
   const nextDay = brief?.scheduledDay ?? snapshot.plan.progressionRule.daySequence[0];
   const currentPhase = snapshot.plan.progressionRule.weeklyPhases[0];
-  const latestSummary = summaries[0];
-  const latestProposal = proposals.find((proposal) => proposal.status === "pending") ?? proposals[0];
 
   function handleGenerate() {
     startTransition(async () => {
@@ -140,31 +129,61 @@ export function HomeDashboard({ snapshot, today }: HomeDashboardProps) {
         <div className="grid gap-5 lg:grid-cols-[0.92fr_1.08fr]">
           <div className="rounded-[30px] bg-[#151811] p-5 text-white shadow-[0_28px_80px_rgba(18,22,16,0.28)]">
             <p className="text-[11px] uppercase tracking-[0.36em] text-white/45">Today Board</p>
-            <h1 className="mt-3 font-display text-5xl uppercase leading-none tracking-[0.04em] sm:text-6xl">
-              Train Smart
-            </h1>
-            <p className="mt-4 text-sm leading-7 text-white/72">
-              长期计划决定方向，今天的执行只看这张单。A/B/C 顺延，不靠临时聊天反复改口。
-            </p>
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              <div className="rounded-[20px] border border-white/10 bg-white/5 px-4 py-4">
-                <div className="text-[11px] uppercase tracking-[0.28em] text-white/42">Next Day</div>
-                <div className="mt-2 text-4xl font-display text-[#d5ff63]">{nextDay}</div>
-              </div>
-              <div className="rounded-[20px] border border-white/10 bg-white/5 px-4 py-4">
-                <div className="text-[11px] uppercase tracking-[0.28em] text-white/42">Phase</div>
-                <div className="mt-2 text-lg font-semibold">{currentPhase.label}</div>
-                <div className="mt-1 text-sm text-white/58">{currentPhase.repStyle}</div>
+            <div className="mt-4 rounded-[24px] border border-white/10 bg-white/6 p-4">
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-white/42">Training Day</div>
+                  <div className="mt-2 flex items-end gap-3">
+                    <span className="font-display text-5xl leading-none text-[#d5ff63]">{nextDay}</span>
+                    <div className="pb-1">
+                      <div className="text-base font-semibold text-white">
+                        {brief?.workoutPrescription.title ?? `${nextDay} 日训练`}
+                      </div>
+                      <div className="mt-1 text-sm text-white/58">
+                        {brief?.mealPrescription.dayType === "rest" ? "休息日饮食" : currentPhase.label}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/6 px-3 py-1.5 text-xs uppercase tracking-[0.22em] text-white/72">
+                  {brief?.mealPrescription.dayType === "rest" ? "Rest" : "Training"}
+                </div>
               </div>
             </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              {(brief?.mealPrescription.meals ?? []).map((meal) => (
+                <div key={meal.label} className="rounded-[20px] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">{meal.label}</div>
+                  <div className="mt-2 text-2xl font-semibold text-white">{meal.sharePercent}%</div>
+                  <div className="mt-2 text-xs leading-5 text-white/58">{meal.examples.join(" / ")}</div>
+                </div>
+              ))}
+              {!brief?.mealPrescription.meals.length ? (
+                <div className="rounded-[20px] border border-dashed border-white/12 bg-white/4 px-4 py-4 text-sm leading-6 text-white/60 sm:col-span-3">
+                  先生成今天的处方，这里只保留训练日类别和分餐摄入建议。
+                </div>
+              ) : null}
+            </div>
+            {brief ? (
+              <div className="mt-4 rounded-[22px] border border-white/10 bg-white/6 px-4 py-4">
+                <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">Macro Target</div>
+                <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+                  {[
+                    { label: "Carbs", value: `${brief.mealPrescription.macros.carbsG}g` },
+                    { label: "Protein", value: `${brief.mealPrescription.macros.proteinG}g` },
+                    { label: "Fats", value: `${brief.mealPrescription.macros.fatsG}g` },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-[18px] border border-white/10 bg-black/10 px-3 py-3">
+                      <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">{item.label}</div>
+                      <div className="mt-2 text-lg font-semibold text-white">{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <MetricTile label="Current" value={`${snapshot.profile.currentWeightKg}kg`} />
-              <MetricTile label="Target" value={`${snapshot.profile.targetWeightKg}kg`} />
-              <MetricTile label="Recovery" value={snapshot.plan.manualOverrides?.recoveryMode ?? "standard"} />
-            </div>
             <label className="block">
               <span className="text-sm font-medium text-black/66">今天想问什么</span>
               <textarea
@@ -198,136 +217,68 @@ export function HomeDashboard({ snapshot, today }: HomeDashboardProps) {
       </SectionCard>
 
       <SectionCard
-        eyebrow="Plan"
-        title="今日计划"
-        description="把训练、饮食、短期记忆和待确认提案合并到一张执行卡里。"
-      >
-        {brief ? (
-          <div className="grid gap-5 xl:grid-cols-[1.12fr_0.88fr]">
-            <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {brief.reasoningSummary.map((item) => (
-                  <span key={item} className="rounded-full bg-[#151811] px-3 py-1.5 text-xs font-medium text-white/84">
-                    {item}
-                  </span>
-                ))}
-              </div>
-
-              <div className="rounded-[26px] border border-black/10 bg-white/82 p-5">
-                <div className="flex items-end justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Workout</div>
-                    <h3 className="mt-2 text-2xl font-semibold text-[#151811]">{brief.workoutPrescription.title}</h3>
-                    <p className="mt-2 text-sm leading-6 text-black/60">{brief.workoutPrescription.objective}</p>
-                  </div>
-                  <div className="rounded-[20px] bg-[#d5ff63] px-4 py-3 text-center">
-                    <div className="text-[11px] uppercase tracking-[0.28em] text-black/45">Day</div>
-                    <div className="mt-1 font-display text-4xl leading-none text-[#151811]">{brief.scheduledDay}</div>
-                  </div>
-                </div>
-
-                <div className="mt-5 space-y-3">
-                  {brief.workoutPrescription.exercises.length ? (
-                    brief.workoutPrescription.exercises.map((exercise) => (
-                      <article
-                        key={exercise.name}
-                        className="rounded-[20px] border border-black/8 bg-[#faf7ef] px-4 py-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-base font-semibold text-[#151811]">{exercise.name}</div>
-                            <div className="mt-1 text-sm text-black/56">{exercise.focus}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-[11px] uppercase tracking-[0.24em] text-black/42">Load</div>
-                            <div className="mt-1 text-base font-semibold text-[#151811]">
-                              {exercise.suggestedWeightKg ? `${exercise.suggestedWeightKg}kg` : "自重"}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-black/58">
-                          <span className="rounded-full bg-black/5 px-3 py-1.5">
-                            {exercise.sets} x {exercise.reps}
-                          </span>
-                          <span className="rounded-full bg-black/5 px-3 py-1.5">{exercise.restSeconds}s rest</span>
-                        </div>
-                      </article>
-                    ))
-                  ) : (
-                    <div className="rounded-[20px] border border-dashed border-black/12 bg-[#faf7ef] px-4 py-4 text-sm text-black/58">
-                      今天按恢复日处理，训练顺位不消耗，下次继续这一天。
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="rounded-[26px] border border-black/10 bg-[#151811] p-5 text-white">
-                <div className="text-[11px] uppercase tracking-[0.28em] text-white/42">Meal Prescription</div>
-                <div className="mt-4 grid grid-cols-3 gap-3">
-                  {[
-                    { label: "Carbs", value: `${brief.mealPrescription.macros.carbsG}g` },
-                    { label: "Protein", value: `${brief.mealPrescription.macros.proteinG}g` },
-                    { label: "Fats", value: `${brief.mealPrescription.macros.fatsG}g` },
-                  ].map((item) => (
-                    <div key={item.label} className="rounded-[18px] border border-white/10 bg-white/6 px-3 py-3 text-center">
-                      <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">{item.label}</div>
-                      <div className="mt-2 text-lg font-semibold">{item.value}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-4 space-y-2 text-sm leading-6 text-white/74">
-                  {brief.mealPrescription.guidance.slice(0, 2).map((item) => (
-                    <p key={item}>• {item}</p>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                <div className="rounded-[24px] border border-black/10 bg-white/82 p-5">
-                  <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Latest Memory</div>
-                  {latestSummary ? (
-                    <>
-                      <p className="mt-3 text-sm font-medium leading-6 text-[#151811]">{latestSummary.summary}</p>
-                      <p className="mt-2 text-xs leading-5 text-black/52">{latestSummary.signals.join(" / ")}</p>
-                    </>
-                  ) : (
-                    <p className="mt-3 text-sm text-black/56">还没有任何汇报，第一条日报会从这里开始沉淀。</p>
-                  )}
-                </div>
-
-                <div className="rounded-[24px] border border-black/10 bg-white/82 p-5">
-                  <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Plan Watch</div>
-                  {latestProposal ? (
-                    <>
-                      <p className="mt-3 text-sm font-medium leading-6 text-[#151811]">{latestProposal.triggerReason}</p>
-                      <p className="mt-2 text-xs leading-5 text-black/52">{latestProposal.rationale}</p>
-                      <div className="mt-3 inline-flex rounded-full bg-[#151811] px-3 py-1.5 text-xs uppercase tracking-[0.22em] text-white/78">
-                        {latestProposal.status}
-                      </div>
-                    </>
-                  ) : (
-                    <p className="mt-3 text-sm text-black/56">当前没有新的待确认提案，先按今天的计划执行。</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-[24px] border border-dashed border-black/14 bg-white/70 p-5 text-sm text-black/55">
-            还没有生成今天的计划。先在上面的提问栏输入“今天怎么练怎么吃”。
-          </div>
-        )}
-      </SectionCard>
-
-      <SectionCard
-        eyebrow="Report"
-        title="执行汇报"
-        description="执行结束后只回填这一栏。系统会根据表现生成新的记忆和调整提案。"
+        eyebrow="Execution"
+        title="今日计划与汇报"
+        description="训练处方和执行回填放在同一栏，避免页面来回跳。"
       >
         {brief ? (
           <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {brief.reasoningSummary.map((item) => (
+                <span key={item} className="rounded-full bg-[#151811] px-3 py-1.5 text-xs font-medium text-white/84">
+                  {item}
+                </span>
+              ))}
+            </div>
+
+            <div className="rounded-[26px] border border-black/10 bg-white/82 p-5">
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Workout</div>
+                  <h3 className="mt-2 text-2xl font-semibold text-[#151811]">{brief.workoutPrescription.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-black/60">{brief.workoutPrescription.objective}</p>
+                </div>
+                <div className="rounded-[20px] bg-[#d5ff63] px-4 py-3 text-center">
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-black/45">Day</div>
+                  <div className="mt-1 font-display text-4xl leading-none text-[#151811]">{brief.scheduledDay}</div>
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {brief.workoutPrescription.exercises.length ? (
+                  brief.workoutPrescription.exercises.map((exercise) => (
+                    <article
+                      key={exercise.name}
+                      className="rounded-[20px] border border-black/8 bg-[#faf7ef] px-4 py-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-base font-semibold text-[#151811]">{exercise.name}</div>
+                          <div className="mt-1 text-sm text-black/56">{exercise.focus}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[11px] uppercase tracking-[0.24em] text-black/42">Load</div>
+                          <div className="mt-1 text-base font-semibold text-[#151811]">
+                            {exercise.suggestedWeightKg ? `${exercise.suggestedWeightKg}kg` : "自重"}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-black/58">
+                        <span className="rounded-full bg-black/5 px-3 py-1.5">
+                          {exercise.sets} x {exercise.reps}
+                        </span>
+                        <span className="rounded-full bg-black/5 px-3 py-1.5">{exercise.restSeconds}s rest</span>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="rounded-[20px] border border-dashed border-black/12 bg-[#faf7ef] px-4 py-4 text-sm text-black/58">
+                    今天按恢复日处理，训练顺位不消耗，下次继续这一天。
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-4">
               <label className="block rounded-[22px] bg-white/80 p-4">
                 <span className="text-[11px] uppercase tracking-[0.24em] text-black/40">Body Weight</span>
@@ -461,7 +412,7 @@ export function HomeDashboard({ snapshot, today }: HomeDashboardProps) {
           </div>
         ) : (
           <div className="rounded-[24px] border border-dashed border-black/14 bg-white/70 p-5 text-sm text-black/55">
-            先生成今天的计划，再回填执行结果。
+            还没有生成今天的计划。先在上面的提问栏输入“今天怎么练怎么吃”。
           </div>
         )}
       </SectionCard>

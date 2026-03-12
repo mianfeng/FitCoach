@@ -113,6 +113,32 @@ async function getMockStore() {
   return globalThis.__fitcoachMockStore__;
 }
 
+function sortByDateAndCreatedAtDesc<T extends { date: string; createdAt?: string }>(items: T[]) {
+  return [...items].sort((left, right) => {
+    const dateOrder = right.date.localeCompare(left.date);
+    if (dateOrder !== 0) {
+      return dateOrder;
+    }
+
+    return (right.createdAt ?? "").localeCompare(left.createdAt ?? "");
+  });
+}
+
+function dedupeByDate<T extends { date: string; createdAt?: string }>(items: T[]) {
+  const seen = new Set<string>();
+  const result: T[] = [];
+
+  for (const item of sortByDateAndCreatedAtDesc(items)) {
+    if (seen.has(item.date)) {
+      continue;
+    }
+    seen.add(item.date);
+    result.push(item);
+  }
+
+  return result;
+}
+
 function createMockRepository(): Repository {
   return {
     async getDashboardSnapshot() {
@@ -136,9 +162,9 @@ function createMockRepository(): Repository {
         plan: normalized.plan,
         templates: normalized.templates,
         recentBrief: store.recentBrief,
-        recentReports: store.recentReports.slice(0, 6),
+        recentReports: dedupeByDate(store.recentReports).slice(0, 6),
         proposals: store.proposals.slice(0, 6),
-        summaries: store.summaries.slice(0, 6),
+        summaries: dedupeByDate(store.summaries).slice(0, 6),
         chatMessages: store.chatMessages.slice(-8),
       };
     },
@@ -197,13 +223,14 @@ function createMockRepository(): Repository {
     },
     async listSessionReports(limit = 20) {
       const store = await getMockStore();
-      return [...store.recentReports].slice(0, limit);
+      return dedupeByDate(store.recentReports).slice(0, limit);
     },
     async saveSessionReport(report) {
       const store = await getMockStore();
-      const { memorySummary, proposals } = buildSessionSummary(report, store.recentReports, store.plan);
-      store.recentReports = [report, ...store.recentReports].slice(0, 30);
-      store.summaries = [memorySummary, ...store.summaries].slice(0, 30);
+      const priorReports = store.recentReports.filter((item) => item.date !== report.date);
+      const { memorySummary, proposals } = buildSessionSummary(report, priorReports, store.plan);
+      store.recentReports = [report, ...priorReports].slice(0, 30);
+      store.summaries = [memorySummary, ...store.summaries.filter((item) => item.date !== memorySummary.date)].slice(0, 30);
       if (proposals.length) {
         store.proposals = [...proposals, ...store.proposals].slice(0, 20);
       }
@@ -247,7 +274,7 @@ function createMockRepository(): Repository {
     },
     async listMemorySummaries(limit = 20) {
       const store = await getMockStore();
-      return store.summaries.slice(0, limit);
+      return dedupeByDate(store.summaries).slice(0, limit);
     },
     async saveMemorySummary(summary) {
       const store = await getMockStore();
@@ -363,11 +390,14 @@ function createSupabaseRepository(): Repository {
       const [{ data: briefRows }, { data: reportRows }, { data: proposalRows }, { data: summaryRows }, { data: chatRows }] =
         await Promise.all([
           supabase.from("daily_briefs").select("*").order("created_at", { ascending: false }).limit(1).returns<BriefRow[]>(),
-          supabase.from("session_reports").select("*").order("created_at", { ascending: false }).limit(6).returns<ReportRow[]>(),
+          supabase.from("session_reports").select("*").order("created_at", { ascending: false }).limit(24).returns<ReportRow[]>(),
           supabase.from("plan_adjustments").select("*").order("created_at", { ascending: false }).limit(6).returns<ProposalRow[]>(),
-          supabase.from("memory_summaries").select("*").order("created_at", { ascending: false }).limit(6).returns<SummaryRow[]>(),
+          supabase.from("memory_summaries").select("*").order("created_at", { ascending: false }).limit(24).returns<SummaryRow[]>(),
           supabase.from("chat_messages").select("*").order("created_at", { ascending: false }).limit(8).returns<ChatRow[]>(),
         ]);
+
+      const recentReports = dedupeByDate((reportRows ?? []).map((row) => row.report)).slice(0, 6);
+      const summaries = dedupeByDate((summaryRows ?? []).map((row) => row.summary)).slice(0, 6);
 
       return {
         profile: normalized.profile,
@@ -375,9 +405,9 @@ function createSupabaseRepository(): Repository {
         plan: normalized.plan,
         templates: normalized.templates,
         recentBrief: briefRows?.[0]?.brief ?? null,
-        recentReports: (reportRows ?? []).map((row) => row.report),
+        recentReports,
         proposals: (proposalRows ?? []).map((row) => row.proposal),
-        summaries: (summaryRows ?? []).map((row) => row.summary),
+        summaries,
         chatMessages: (chatRows ?? []).map((row) => row.message).reverse(),
       };
     },
@@ -475,27 +505,57 @@ function createSupabaseRepository(): Repository {
         .from("session_reports")
         .select("*")
         .order("created_at", { ascending: false })
-        .limit(limit)
+        .limit(Math.max(limit * 3, 24))
         .returns<ReportRow[]>();
-      return (data ?? []).map((row) => row.report);
+      return dedupeByDate((data ?? []).map((row) => row.report)).slice(0, limit);
     },
     async saveSessionReport(report) {
       const coachState = await ensureCoachState(supabase);
-      const recentReports = await this.listSessionReports(10);
-      const { memorySummary, proposals } = buildSessionSummary(report, recentReports, coachState.active_plan);
+      const { data: existingReportRows } = await supabase
+        .from("session_reports")
+        .select("*")
+        .eq("report->>date", report.date)
+        .order("created_at", { ascending: false })
+        .returns<ReportRow[]>();
+      const resolvedReport = {
+        ...report,
+        id: existingReportRows?.[0]?.id ?? report.id,
+      };
+      const recentReports = (await this.listSessionReports(10)).filter((item) => item.date !== resolvedReport.date);
+      const { memorySummary, proposals } = buildSessionSummary(resolvedReport, recentReports, coachState.active_plan);
+      const { data: existingSummaryRows } = await supabase
+        .from("memory_summaries")
+        .select("*")
+        .eq("summary->>date", resolvedReport.date)
+        .order("created_at", { ascending: false })
+        .returns<SummaryRow[]>();
+      const resolvedSummary = {
+        ...memorySummary,
+        id: existingSummaryRows?.[0]?.id ?? memorySummary.id,
+      };
 
       const { error } = await supabase.from("session_reports").upsert({
-        id: report.id,
-        report,
+        id: resolvedReport.id,
+        report: resolvedReport,
       });
       if (error) {
         throw error;
       }
 
       await supabase.from("memory_summaries").upsert({
-        id: memorySummary.id,
-        summary: memorySummary,
+        id: resolvedSummary.id,
+        summary: resolvedSummary,
       });
+
+      const duplicateReportIds = (existingReportRows ?? []).slice(1).map((row) => row.id);
+      if (duplicateReportIds.length) {
+        await supabase.from("session_reports").delete().in("id", duplicateReportIds);
+      }
+
+      const duplicateSummaryIds = (existingSummaryRows ?? []).slice(1).map((row) => row.id);
+      if (duplicateSummaryIds.length) {
+        await supabase.from("memory_summaries").delete().in("id", duplicateSummaryIds);
+      }
 
       if (proposals.length) {
         await supabase.from("plan_adjustments").insert(
@@ -506,7 +566,7 @@ function createSupabaseRepository(): Repository {
         );
       }
 
-      return report;
+      return resolvedReport;
     },
     async listPlanAdjustments(limit = 20) {
       const { data } = await supabase
@@ -563,9 +623,9 @@ function createSupabaseRepository(): Repository {
         .from("memory_summaries")
         .select("*")
         .order("created_at", { ascending: false })
-        .limit(limit)
+        .limit(Math.max(limit * 3, 24))
         .returns<SummaryRow[]>();
-      return (data ?? []).map((row) => row.summary);
+      return dedupeByDate((data ?? []).map((row) => row.summary)).slice(0, limit);
     },
     async saveMemorySummary(summary) {
       const { error } = await supabase.from("memory_summaries").upsert({

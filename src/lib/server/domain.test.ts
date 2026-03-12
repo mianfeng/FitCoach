@@ -45,6 +45,8 @@ describe("daily brief", () => {
 
     expect(result.reused).toBe(false);
     expect(result.brief.scheduledDay).toBe("A");
+    expect(result.brief.calendarSlot).toBe("A");
+    expect(result.brief.isRestDay).toBe(false);
     expect(result.brief.workoutPrescription.exercises.length).toBeGreaterThan(0);
     expect(result.brief.mealPrescription.macros.carbsG).toBeGreaterThan(0);
   });

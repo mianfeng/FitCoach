@@ -166,7 +166,10 @@ export interface MealPrescription {
 export interface DailyBrief {
   id: string;
   date: string;
-  scheduledDay: DayCode;
+  scheduledDay?: DayCode;
+  calendarLabel: string;
+  calendarSlot: PlanCalendarSlot;
+  isRestDay: boolean;
   workoutPrescription: WorkoutPrescription;
   mealPrescription: MealPrescription;
   reasoningSummary: string[];

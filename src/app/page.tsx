@@ -45,9 +45,7 @@ export default async function Home({
       today={activeDate}
       todayBrief={todayBrief}
       isHistorical={isHistorical}
-      historyLabel={historySnapshot?.label ?? snapshot.plan.calendarEntries.find((entry) => entry.date === activeDate)?.label}
       historyMissingSnapshot={Boolean(isHistorical && !historySnapshot)}
-      historySlot={historySnapshot?.scheduledDay ?? snapshot.plan.calendarEntries.find((entry) => entry.date === activeDate)?.slot}
     />
   );
 }

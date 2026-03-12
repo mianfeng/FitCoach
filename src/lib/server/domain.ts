@@ -14,6 +14,8 @@ import type {
   LongTermPlan,
   MealPrescription,
   MemorySummary,
+  PlanCalendarEntry,
+  PlanCalendarSlot,
   PlanSnapshot,
   PlanAdjustmentProposal,
   SessionReport,
@@ -37,6 +39,28 @@ function parseRepStyle(repStyle: string) {
   return {
     sets: Number(match[1]),
     reps: match[2],
+  };
+}
+
+const calendarCycle: PlanCalendarSlot[] = ["A", "B", "C", "rest"];
+
+function resolveCalendarEntry(plan: LongTermPlan, date: string): PlanCalendarEntry {
+  const matched = plan.calendarEntries.find((entry) => entry.date === date);
+  if (matched) {
+    return matched;
+  }
+
+  const offsetDays = Math.max(0, differenceInCalendarDays(new Date(date), new Date(plan.startDate)));
+  const week = Math.floor(offsetDays / 7) + 1;
+  const dayIndex = (offsetDays % 7) + 1;
+  const slot = calendarCycle[offsetDays % calendarCycle.length];
+
+  return {
+    date,
+    week,
+    dayIndex,
+    slot,
+    label: `W${week}D${dayIndex}${slot === "rest" ? "休" : slot}`,
   };
 }
 
@@ -160,11 +184,6 @@ function buildWorkoutExercise(
   } satisfies WorkoutPrescriptionExercise;
 }
 
-function detectRestIntent(request: DailyBriefRequest) {
-  const source = `${request.userQuestion} ${request.optionalConstraints ?? ""}`;
-  return ["休息", "出差", "没空", "恢复", "不练"].some((keyword) => source.includes(keyword));
-}
-
 export function buildMealPrescription(
   profile: UserProfile,
   plan: LongTermPlan,
@@ -215,55 +234,71 @@ export function buildDailyBrief(
   reports: SessionReport[],
   existingBrief: DailyBrief | null,
 ) {
-  if (existingBrief) {
+  const calendarEntry = resolveCalendarEntry(plan, request.date);
+  const fallbackScheduledDay = calendarEntry.slot === "rest" ? undefined : calendarEntry.slot;
+
+  if (
+    existingBrief &&
+    existingBrief.calendarSlot === calendarEntry.slot &&
+    existingBrief.calendarLabel === calendarEntry.label
+  ) {
     return {
-      brief: { ...existingBrief, reused: true },
+      brief: {
+        ...existingBrief,
+        scheduledDay: fallbackScheduledDay,
+        calendarLabel: calendarEntry.label,
+        calendarSlot: calendarEntry.slot,
+        isRestDay: calendarEntry.slot === "rest",
+        reused: true,
+      },
       reused: true,
     };
   }
 
-  const scheduledDay = getNextScheduledDay(plan, reports);
+  const scheduledDay = fallbackScheduledDay;
   const weeklyPhase = getCurrentWeeklyPhase(plan, request.date);
-  const template = getExerciseTemplate(scheduledDay, templates);
-  if (!template) {
+  const applicableReports = reports.filter((report) => report.date < request.date);
+  const template = scheduledDay ? getExerciseTemplate(scheduledDay, templates) : null;
+  if (scheduledDay && !template) {
     throw new Error(`Missing workout template for ${scheduledDay}`);
   }
 
-  const restIntent = detectRestIntent(request);
+  const isRestDay = calendarEntry.slot === "rest";
   const workoutPrescription: WorkoutPrescription = {
-    dayCode: scheduledDay,
-    title: restIntent ? `${template.name} / 顺延` : template.name,
-    objective: restIntent ? "今天按恢复日处理，训练顺延到下次执行。" : template.objective,
-    warmup: restIntent ? ["10 分钟散步", "肩髋灵活性 10 分钟", "早点睡"] : template.warmup,
-    exercises: restIntent
+    dayCode: scheduledDay ?? "A",
+    title: isRestDay ? "恢复 / 休息日" : template!.name,
+    objective: isRestDay ? "今天按休息日处理，优先恢复、活动和饮食执行。" : template!.objective,
+    warmup: isRestDay ? ["10 分钟散步", "肩髋灵活性 10 分钟", "早点睡"] : template!.warmup,
+    exercises: isRestDay
       ? []
-      : template.exercises.map((exercise) =>
-          buildWorkoutExercise(exercise, profile, weeklyPhase.intensity, weeklyPhase.repStyle, reports),
+      : template!.exercises.map((exercise) =>
+          buildWorkoutExercise(exercise, profile, weeklyPhase.intensity, weeklyPhase.repStyle, applicableReports),
         ),
     caution: [
-      `当前所处阶段：第 ${weeklyPhase.week} 周 ${weeklyPhase.label}，主线是 ${weeklyPhase.notes}。`,
+      `当前日期对应 ${calendarEntry.label}，阶段为第 ${weeklyPhase.week} 周 ${weeklyPhase.label}。`,
       plan.manualOverrides?.recoveryMode === "deload"
         ? "恢复模式开启：主项负重下调、RPE 控制在 7 左右。"
         : "主项执行时优先动作标准，不要为了加重破坏轨迹。",
-      restIntent ? "今天不消耗顺位，下一次训练仍然执行这个训练日。" : "训练结束后尽快回填执行结果。",
+      isRestDay ? "今天是休息日，不安排训练汇报。" : "训练结束后尽快回填执行结果。",
     ],
   };
 
-  const mealPrescription = buildMealPrescription(profile, plan, restIntent ? "rest" : "training");
+  const mealPrescription = buildMealPrescription(profile, plan, isRestDay ? "rest" : "training");
 
   return {
     brief: {
       id: uid("brief"),
       date: request.date,
       scheduledDay,
+      calendarLabel: calendarEntry.label,
+      calendarSlot: calendarEntry.slot,
+      isRestDay,
       workoutPrescription,
       mealPrescription,
       reasoningSummary: [
-        `训练顺位按 A/B/C 顺延，当前待执行的是 ${scheduledDay}。`,
+        `Today 页面严格跟随日历日期，当前标签是 ${calendarEntry.label}。`,
         `本周强度采用 ${Math.round(weeklyPhase.intensity * 100)}% 区间，组次风格为 ${weeklyPhase.repStyle}。`,
-        restIntent
-          ? "检测到你当前更偏恢复场景，所以今天只给饮食与恢复处方。"
-          : "饮食按训练日宏量生成，避免临时问答导致当天摄入前后不一致。",
+        isRestDay ? "休息日只显示恢复与饮食，不生成训练动作。" : "训练日动作和饮食都按该日期槽位生成。",
       ],
       sourceSnapshotId: uid("snapshot"),
       userQuestion: request.userQuestion,
@@ -307,7 +342,10 @@ export function buildDailyBriefFromSnapshot(snapshot: PlanSnapshot): DailyBrief 
   return {
     id: snapshot.id,
     date: snapshot.date,
-    scheduledDay: snapshot.scheduledDay === "rest" ? "A" : snapshot.scheduledDay,
+    scheduledDay: snapshot.scheduledDay === "rest" ? undefined : snapshot.scheduledDay,
+    calendarLabel: snapshot.label,
+    calendarSlot: snapshot.scheduledDay,
+    isRestDay: snapshot.scheduledDay === "rest",
     workoutPrescription: snapshot.workoutPrescription,
     mealPrescription: snapshot.mealPrescription,
     reasoningSummary:
@@ -527,7 +565,7 @@ export function buildHistoryBasis(reports: SessionReport[]) {
 export function createReportDraftFromBrief(brief: DailyBrief) {
   return {
     date: isoToday(),
-    performedDay: brief.scheduledDay,
+    performedDay: brief.scheduledDay ?? "A",
     exerciseResults: brief.workoutPrescription.exercises.map(
       (exercise) =>
         ({

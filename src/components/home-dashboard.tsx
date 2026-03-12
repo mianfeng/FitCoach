@@ -64,6 +64,7 @@ export function HomeDashboard({ snapshot, today, todayBrief }: HomeDashboardProp
   const [, setProposals] = useState(snapshot.proposals);
   const [, setSummaries] = useState(snapshot.summaries);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [reportDraft, setReportDraft] = useState(() =>
     buildReportDraft(todayBrief, snapshot.profile.currentWeightKg, snapshot.profile.sleepTargetHours),
   );
@@ -321,6 +322,45 @@ export function HomeDashboard({ snapshot, today, todayBrief }: HomeDashboardProp
                 className="w-full rounded-[18px] border border-black/10 bg-white px-4 py-3 text-sm outline-none"
                 placeholder="描述今天的状态、是否新增动作、哪里不舒服、饮食执行情况。"
               />
+            </div>
+
+            <div className="rounded-[20px] border border-black/10 bg-[#f7f3e8] p-3">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((current) => !current)}
+                className="flex w-full items-center justify-between text-left"
+              >
+                <span className="text-[11px] uppercase tracking-[0.24em] text-black/42">高级字段</span>
+                <span className="text-xs font-semibold text-[#151811]">{showAdvanced ? "收起" : "展开"}</span>
+              </button>
+              {showAdvanced ? (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                    <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">体重 kg</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={reportDraft.bodyWeightKg}
+                      onChange={(event) =>
+                        setReportDraft((current) => ({ ...current, bodyWeightKg: Number(event.target.value) }))
+                      }
+                      className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                    />
+                  </label>
+                  <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                    <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">睡眠 h</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={reportDraft.sleepHours}
+                      onChange={(event) =>
+                        setReportDraft((current) => ({ ...current, sleepHours: Number(event.target.value) }))
+                      }
+                      className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                    />
+                  </label>
+                </div>
+              ) : null}
             </div>
 
             <button

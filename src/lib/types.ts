@@ -4,6 +4,8 @@ export type KnowledgeBasisType = "knowledge" | "history" | "inference";
 export type ProposalScope = "day" | "week" | "cycle";
 export type ProposalStatus = "pending" | "approved" | "rejected";
 export type ReportAdherence = 1 | 2 | 3 | 4 | 5;
+export type SchedulePattern = "3on1off";
+export type PlanCalendarSlot = DayCode | "rest";
 
 export interface CoachPersona {
   id: string;
@@ -42,6 +44,14 @@ export interface ProgressionRule {
   defaultIncrementsKg: Record<string, number>;
 }
 
+export interface PlanCalendarEntry {
+  date: string;
+  week: number;
+  dayIndex: number;
+  slot: PlanCalendarSlot;
+  label: string;
+}
+
 export interface DeloadRule {
   consecutiveHighFatigueDays: number;
   lowSleepThreshold: number;
@@ -68,6 +78,10 @@ export interface LongTermPlan {
   goal: string;
   phase: PlanPhase;
   startDate: string;
+  durationWeeks: number;
+  startingIntensityPct: number;
+  schedulePattern: SchedulePattern;
+  calendarEntries: PlanCalendarEntry[];
   splitType: "PPL";
   progressionRule: ProgressionRule;
   deloadRule: DeloadRule;
@@ -86,6 +100,7 @@ export interface ExerciseTemplate {
   restSeconds: number;
   cues: string[];
   baseWeightKg?: number;
+  oneRepMaxKg?: number;
   oneRepMaxRef?: string;
   progressionModel: "percentage" | "fixed";
   percentageOf1RM?: number;

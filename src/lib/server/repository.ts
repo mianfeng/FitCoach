@@ -3,6 +3,7 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { buildEmptyDashboardSeed, buildDefaultPlanSetup } from "@/lib/seed";
+import { normalizePlanSetupInput } from "@/lib/plan-generator";
 import { buildSessionSummary } from "@/lib/server/domain";
 import { env, hasSupabaseConfig } from "@/lib/server/env";
 import { loadLocalKnowledgeBundle, parseKnowledgeMarkdown, searchKnowledgeChunks } from "@/lib/server/knowledge";
@@ -106,11 +107,21 @@ function createMockRepository(): Repository {
   return {
     async getDashboardSnapshot() {
       const store = await getMockStore();
-      return {
+      const normalized = normalizePlanSetupInput({
         profile: store.profile,
         persona: store.persona,
         plan: store.plan,
         templates: store.templates,
+      });
+      store.profile = normalized.profile;
+      store.persona = normalized.persona;
+      store.plan = normalized.plan;
+      store.templates = normalized.templates;
+      return {
+        profile: normalized.profile,
+        persona: normalized.persona,
+        plan: normalized.plan,
+        templates: normalized.templates,
         recentBrief: store.recentBrief,
         recentReports: store.recentReports.slice(0, 6),
         proposals: store.proposals.slice(0, 6),
@@ -120,20 +131,26 @@ function createMockRepository(): Repository {
     },
     async getPlanSetup() {
       const store = await getMockStore();
-      return {
+      const normalized = normalizePlanSetupInput({
         profile: store.profile,
         persona: store.persona,
         plan: store.plan,
         templates: store.templates,
-      };
+      });
+      store.profile = normalized.profile;
+      store.persona = normalized.persona;
+      store.plan = normalized.plan;
+      store.templates = normalized.templates;
+      return normalized;
     },
     async savePlanSetup(input) {
       const store = await getMockStore();
-      store.profile = input.profile;
-      store.persona = input.persona;
-      store.plan = input.plan;
-      store.templates = input.templates;
-      return input;
+      const normalized = normalizePlanSetupInput(input);
+      store.profile = normalized.profile;
+      store.persona = normalized.persona;
+      store.plan = normalized.plan;
+      store.templates = normalized.templates;
+      return normalized;
     },
     async findDailyBriefByDate(date) {
       const store = await getMockStore();
@@ -303,6 +320,12 @@ function createSupabaseRepository(): Repository {
     async getDashboardSnapshot() {
       await ensureKnowledgeSeeded(supabase);
       const coachState = await ensureCoachState(supabase);
+      const normalized = normalizePlanSetupInput({
+        profile: coachState.profile,
+        persona: coachState.persona,
+        plan: coachState.active_plan,
+        templates: coachState.workout_templates,
+      });
       const [{ data: briefRows }, { data: reportRows }, { data: proposalRows }, { data: summaryRows }, { data: chatRows }] =
         await Promise.all([
           supabase.from("daily_briefs").select("*").order("created_at", { ascending: false }).limit(1).returns<BriefRow[]>(),
@@ -313,10 +336,10 @@ function createSupabaseRepository(): Repository {
         ]);
 
       return {
-        profile: coachState.profile,
-        persona: coachState.persona,
-        plan: coachState.active_plan,
-        templates: coachState.workout_templates,
+        profile: normalized.profile,
+        persona: normalized.persona,
+        plan: normalized.plan,
+        templates: normalized.templates,
         recentBrief: briefRows?.[0]?.brief ?? null,
         recentReports: (reportRows ?? []).map((row) => row.report),
         proposals: (proposalRows ?? []).map((row) => row.proposal),
@@ -326,25 +349,26 @@ function createSupabaseRepository(): Repository {
     },
     async getPlanSetup() {
       const coachState = await ensureCoachState(supabase);
-      return {
+      return normalizePlanSetupInput({
         profile: coachState.profile,
         persona: coachState.persona,
         plan: coachState.active_plan,
         templates: coachState.workout_templates,
-      };
+      });
     },
     async savePlanSetup(input) {
+      const normalized = normalizePlanSetupInput(input);
       const { error } = await supabase.from("coach_state").upsert({
         id: "primary",
-        profile: input.profile,
-        persona: input.persona,
-        active_plan: input.plan,
-        workout_templates: input.templates,
+        profile: normalized.profile,
+        persona: normalized.persona,
+        active_plan: normalized.plan,
+        workout_templates: normalized.templates,
       });
       if (error) {
         throw error;
       }
-      return input;
+      return normalized;
     },
     async findDailyBriefByDate(date) {
       const { data } = await supabase

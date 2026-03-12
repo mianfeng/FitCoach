@@ -8,6 +8,7 @@ import type {
   UserProfile,
   WorkoutTemplate,
 } from "@/lib/types";
+import { regenerateLinearPlan } from "@/lib/plan-generator";
 import { isoToday, uid } from "@/lib/utils";
 
 export const defaultPersona: CoachPersona = {
@@ -48,6 +49,10 @@ export const defaultPlan: LongTermPlan = {
   goal: "60kg -> 65kg Lean Bulk",
   phase: "lean_bulk",
   startDate: isoToday(),
+  durationWeeks: 8,
+  startingIntensityPct: 70,
+  schedulePattern: "3on1off",
+  calendarEntries: [],
   splitType: "PPL",
   progressionRule: {
     type: "linear",
@@ -110,6 +115,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         restSeconds: 120,
         cues: ["握距同肩宽", "肘向内收", "避免借力后仰"],
         baseWeightKg: 25,
+        oneRepMaxKg: 30,
         oneRepMaxRef: "lat_pulldown",
         progressionModel: "percentage",
         percentageOf1RM: 1,
@@ -127,6 +133,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         restSeconds: 105,
         cues: ["身体刚性", "下拉到底夹背", "全程可控"],
         baseWeightKg: 20,
+        oneRepMaxKg: 27.5,
         progressionModel: "fixed",
         incrementKg: 2.5,
         substitutions: ["辅助引体向上"],
@@ -141,6 +148,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         restSeconds: 90,
         cues: ["脊柱中立", "先预紧再发力", "顶峰停 1 秒"],
         baseWeightKg: 20,
+        oneRepMaxKg: 30,
         progressionModel: "fixed",
         incrementKg: 2.5,
         substitutions: ["坐姿划船"],
@@ -155,6 +163,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         restSeconds: 75,
         cues: ["肩胛后缩主导", "肘走外展轨迹"],
         baseWeightKg: 12.5,
+        oneRepMaxKg: 20,
         progressionModel: "fixed",
         incrementKg: 2.5,
         substitutions: ["胸托划船"],
@@ -169,6 +178,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         restSeconds: 60,
         cues: ["手腕固定", "肘微屈", "慢速离心"],
         baseWeightKg: 10,
+        oneRepMaxKg: 15,
         progressionModel: "fixed",
         incrementKg: 2.5,
         substitutions: ["器械下拉"],
@@ -183,6 +193,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         restSeconds: 75,
         cues: ["肘固定", "避免后仰借力"],
         baseWeightKg: 15,
+        oneRepMaxKg: 22.5,
         progressionModel: "fixed",
         incrementKg: 2.5,
         substitutions: ["EZ 杠弯举"],
@@ -226,6 +237,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         restSeconds: 90,
         cues: ["肩胛贴凳", "底部拉伸充分"],
         baseWeightKg: 12.5,
+        oneRepMaxKg: 20,
         progressionModel: "fixed",
         incrementKg: 2.5,
         substitutions: ["史密斯上斜卧推"],
@@ -240,6 +252,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         restSeconds: 90,
         cues: ["核心收紧", "上推不过度耸肩"],
         baseWeightKg: 10,
+        oneRepMaxKg: 15,
         progressionModel: "fixed",
         incrementKg: 2.5,
         substitutions: ["器械肩推"],
@@ -254,6 +267,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         restSeconds: 60,
         cues: ["轻重量高质量", "肘领先手腕"],
         baseWeightKg: 5,
+        oneRepMaxKg: 8,
         progressionModel: "fixed",
         incrementKg: 1,
         substitutions: ["绳索侧平举"],
@@ -268,6 +282,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         restSeconds: 60,
         cues: ["肘夹紧", "顶峰锁定"],
         baseWeightKg: 15,
+        oneRepMaxKg: 20,
         progressionModel: "fixed",
         incrementKg: 2.5,
         substitutions: ["双杠臂屈伸"],
@@ -310,6 +325,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         reps: "8-10",
         restSeconds: 120,
         cues: ["髋主导", "脊柱中立", "下放到腿后侧拉伸感明显"],
+        oneRepMaxKg: 60,
         oneRepMaxRef: "rdl",
         progressionModel: "percentage",
         percentageOf1RM: 0.85,
@@ -325,6 +341,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         reps: "12-15",
         restSeconds: 60,
         cues: ["向上伸展而非卷腹", "全程紧腹"],
+        oneRepMaxKg: 10,
         progressionModel: "fixed",
         incrementKg: 0,
         substitutions: ["平板支撑"],
@@ -338,6 +355,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         reps: "10-12",
         restSeconds: 60,
         cues: ["控制下放", "避免身体晃动"],
+        oneRepMaxKg: 10,
         progressionModel: "fixed",
         incrementKg: 0,
         substitutions: ["卷腹凳举腿"],
@@ -352,6 +370,7 @@ export const defaultTemplates: WorkoutTemplate[] = [
         restSeconds: 45,
         cues: ["髋部为轴", "动作路径短而卷紧"],
         baseWeightKg: 15,
+        oneRepMaxKg: 20,
         progressionModel: "fixed",
         incrementKg: 2.5,
         substitutions: ["绳索卷腹"],
@@ -361,20 +380,21 @@ export const defaultTemplates: WorkoutTemplate[] = [
 ];
 
 export function buildDefaultPlanSetup(): PlanSetupInput {
-  return {
+  return regenerateLinearPlan({
     profile: defaultProfile,
     persona: defaultPersona,
     plan: defaultPlan,
     templates: defaultTemplates,
-  };
+  });
 }
 
 export function buildEmptyDashboardSeed() {
+  const setup = buildDefaultPlanSetup();
   return {
-    profile: defaultProfile,
-    persona: defaultPersona,
-    plan: defaultPlan,
-    templates: defaultTemplates,
+    profile: setup.profile,
+    persona: setup.persona,
+    plan: setup.plan,
+    templates: setup.templates,
     recentBrief: null as DailyBrief | null,
     recentReports: [] as SessionReport[],
     proposals: [] as PlanAdjustmentProposal[],

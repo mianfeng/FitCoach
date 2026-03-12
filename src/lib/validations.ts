@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const dayCodeSchema = z.enum(["A", "B", "C"]);
+const schedulePatternSchema = z.literal("3on1off");
 
 export const dailyBriefRequestSchema = z.object({
   date: z.string().min(1),
@@ -34,6 +35,20 @@ export const planSetupSchema = z.object({
     goal: z.string().min(1),
     phase: z.enum(["lean_bulk", "cut", "maintenance"]),
     startDate: z.string(),
+    durationWeeks: z.number().min(1).max(52).optional(),
+    startingIntensityPct: z.number().min(1).max(100).optional(),
+    schedulePattern: schedulePatternSchema.optional(),
+    calendarEntries: z
+      .array(
+        z.object({
+          date: z.string(),
+          week: z.number().min(1),
+          dayIndex: z.number().min(1).max(7),
+          slot: z.union([dayCodeSchema, z.literal("rest")]),
+          label: z.string().min(1),
+        }),
+      )
+      .optional(),
     splitType: z.literal("PPL"),
     progressionRule: z.object({
       type: z.literal("linear"),
@@ -89,6 +104,7 @@ export const planSetupSchema = z.object({
           restSeconds: z.number().min(15),
           cues: z.array(z.string()),
           baseWeightKg: z.number().optional(),
+          oneRepMaxKg: z.number().positive().optional(),
           oneRepMaxRef: z.string().optional(),
           progressionModel: z.enum(["percentage", "fixed"]),
           percentageOf1RM: z.number().optional(),

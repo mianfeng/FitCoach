@@ -98,8 +98,8 @@ function suggestExerciseWeight(
 ) {
   let suggested = exercise.baseWeightKg;
 
-  if (exercise.progressionModel === "percentage" && exercise.oneRepMaxRef) {
-    const oneRepMax = profile.oneRepMaxes[exercise.oneRepMaxRef];
+  if (exercise.progressionModel === "percentage") {
+    const oneRepMax = exercise.oneRepMaxKg ?? (exercise.oneRepMaxRef ? profile.oneRepMaxes[exercise.oneRepMaxRef] : undefined);
     if (oneRepMax) {
       const percentage = exercise.percentageOf1RM ?? 1;
       suggested = roundToIncrement(oneRepMax * phaseIntensity * percentage, exercise.incrementKg || 2.5);
@@ -133,7 +133,7 @@ function buildWorkoutExercise(
   const suggestedWeightKg = suggestExerciseWeight(exercise, profile, phaseIntensity, reports);
 
   const reasoning: string[] = [];
-  if (exercise.progressionModel === "percentage" && exercise.oneRepMaxRef) {
+  if (exercise.progressionModel === "percentage" && (exercise.oneRepMaxKg || exercise.oneRepMaxRef)) {
     reasoning.push(`按当前阶段强度 ${Math.round(phaseIntensity * 100)}% 推算`);
   }
   const latest = getLatestExerciseResult(reports, exercise.name);
@@ -474,7 +474,7 @@ export function buildFallbackCoachAnswer(
     `当前目标：${context.activeGoal}`,
     `执行背景：${context.activePlanSummary}`,
     directAnswer,
-    "如果你是在问今天怎么练怎么吃，请直接到首页生成今日处方，那里会输出固定快照而不是临时聊天建议。",
+    "首页会根据正式计划自动生成今天的训练与饮食看板，你只需要在执行后回填结果。",
     basis.length ? `本次回答依据：${basis.map((item) => item.label).join(" / ")}` : "本次回答主要基于当前计划推断。",
   ].join("\n\n");
 }

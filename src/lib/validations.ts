@@ -111,6 +111,7 @@ export const approvePlanAdjustmentSchema = z.object({
 
 export const exerciseResultSchema = z.object({
   exerciseName: z.string().min(1),
+  performed: z.boolean().optional().default(true),
   targetSets: z.number().min(1),
   targetReps: z.string().min(1),
   actualSets: z.number().min(0),

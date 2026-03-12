@@ -62,9 +62,13 @@ function getExerciseTemplate(dayCode: string, templates: WorkoutTemplate[]) {
   return templates.find((template) => template.dayCode === dayCode);
 }
 
+function isExercisePerformed(result: ExerciseResult) {
+  return result.performed !== false;
+}
+
 function getLatestExerciseResult(reports: SessionReport[], exerciseName: string) {
   for (const report of sortReportsDesc(reports)) {
-    const result = report.exerciseResults.find((item) => item.exerciseName === exerciseName);
+    const result = report.exerciseResults.find((item) => item.exerciseName === exerciseName && isExercisePerformed(item));
     if (result) {
       return result;
     }
@@ -274,8 +278,28 @@ function averageReportRpe(report: SessionReport) {
 }
 
 function summarizeExerciseOutcome(report: SessionReport) {
-  const completedCount = report.exerciseResults.filter((item) => !item.droppedSets).length;
+  const completedCount = report.exerciseResults.filter((item) => isExercisePerformed(item)).length;
   return `${completedCount}/${report.exerciseResults.length} 个动作完成度稳定`;
+}
+
+export function buildTodayAutofillBrief(
+  date: string,
+  profile: UserProfile,
+  plan: LongTermPlan,
+  templates: WorkoutTemplate[],
+  reports: SessionReport[],
+) {
+  return buildDailyBrief(
+    {
+      date,
+      userQuestion: "自动生成今日执行清单",
+    },
+    profile,
+    plan,
+    templates,
+    reports,
+    null,
+  ).brief;
 }
 
 export function buildSessionSummary(
@@ -490,6 +514,7 @@ export function createReportDraftFromBrief(brief: DailyBrief) {
       (exercise) =>
         ({
           exerciseName: exercise.name,
+          performed: true,
           targetSets: exercise.sets,
           targetReps: exercise.reps,
           actualSets: exercise.sets,

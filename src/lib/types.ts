@@ -162,6 +162,7 @@ export interface DailyBrief {
 
 export interface ExerciseResult {
   exerciseName: string;
+  performed?: boolean;
   targetSets: number;
   targetReps: string;
   actualSets: number;

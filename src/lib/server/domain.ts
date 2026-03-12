@@ -481,6 +481,85 @@ export function buildSessionSummary(
   return { summary, signals, memorySummary, proposals };
 }
 
+function formatMacroDelta(actual: number, target: number, unit: string) {
+  const delta = actual - target;
+  if (Math.abs(delta) <= 2) {
+    return `${unit}基本持平`;
+  }
+  return delta > 0 ? `${unit}超出 ${Math.abs(delta)}` : `${unit}还差 ${Math.abs(delta)}`;
+}
+
+export function buildDailyReviewMarkdown(params: {
+  report: SessionReport;
+  targetMacros: MealPrescription["macros"];
+}) {
+  const { report, targetMacros } = params;
+  const adherenceFactorMap: Record<number, number> = {
+    1: 0.58,
+    2: 0.74,
+    3: 0.88,
+    4: 0.97,
+    5: 1.02,
+  };
+  const adherenceFactor = adherenceFactorMap[report.dietAdherence] ?? 0.88;
+  const estimatedMacros = {
+    proteinG: Math.round(targetMacros.proteinG * adherenceFactor),
+    carbsG: Math.round(targetMacros.carbsG * adherenceFactor),
+    fatsG: Math.round(targetMacros.fatsG * adherenceFactor),
+  };
+  const estimatedKcal =
+    estimatedMacros.proteinG * 4 + estimatedMacros.carbsG * 4 + estimatedMacros.fatsG * 9;
+  const targetKcal = targetMacros.proteinG * 4 + targetMacros.carbsG * 4 + targetMacros.fatsG * 9;
+  const averageRpe = averageReportRpe(report);
+  const performedCount = report.exerciseResults.filter((item) => isExercisePerformed(item)).length;
+  const droppedSetCount = report.exerciseResults.filter((item) => item.droppedSets).length;
+
+  let overloadStatus: "达标" | "停滞" | "需减载" = "达标";
+  let overloadComment = "主项完成度稳定，今天的训练质量在可继续推进的区间。";
+
+  if (report.fatigue >= 8 || averageRpe >= 9.3 || droppedSetCount >= 2 || report.sleepHours < 5.5) {
+    overloadStatus = "需减载";
+    overloadComment = "疲劳和主观强度偏高，继续硬顶只会拉低下一次训练质量。";
+  } else if (!report.completed || performedCount < Math.max(1, report.exerciseResults.length - 1) || averageRpe < 7.2) {
+    overloadStatus = "停滞";
+    overloadComment = "今天更像保量完成，刺激不足以支撑有效超负荷推进。";
+  }
+
+  let qualityBadge = "🟡 警告";
+  let qualityReason = "训练和饮食有完成，但离理想执行还有明显差距。";
+
+  if (overloadStatus === "达标" && report.dietAdherence >= 4 && report.sleepHours >= 7 && report.fatigue <= 7) {
+    qualityBadge = "🟢 完美";
+    qualityReason = "训练完成度、恢复状态和饮食贴合度都在计划区间内。";
+  } else if (overloadStatus === "需减载" || report.dietAdherence <= 2 || performedCount === 0) {
+    qualityBadge = "🔴 灾难";
+    qualityReason = "恢复或执行质量已经明显越界，继续照常推进风险过高。";
+  }
+
+  const gapAnalysis = [
+    formatMacroDelta(estimatedKcal, targetKcal, "热量(kcal)"),
+    formatMacroDelta(estimatedMacros.proteinG, targetMacros.proteinG, "蛋白质(g)"),
+    formatMacroDelta(estimatedMacros.carbsG, targetMacros.carbsG, "碳水(g)"),
+    formatMacroDelta(estimatedMacros.fatsG, targetMacros.fatsG, "脂肪(g)"),
+  ].join(" / ");
+
+  return [
+    "1. 📊 数据核算",
+    "",
+    `- 估算摄入：${estimatedKcal} kcal / ${estimatedMacros.proteinG} g / ${estimatedMacros.carbsG} g / ${estimatedMacros.fatsG} g`,
+    `- 缺口分析：${gapAnalysis}`,
+    "",
+    "2. 🏋️ 训练评估",
+    "",
+    `- 超负荷状态：${overloadStatus}`,
+    `- 简要评价：${overloadComment}`,
+    "",
+    "3. 🎯 质量评级",
+    "",
+    `- ${qualityBadge}：${qualityReason}`,
+  ].join("\n");
+}
+
 export function buildRecentReportSummary(reports: SessionReport[]) {
   if (!reports.length) {
     return "暂无历史汇报，默认按长期计划首日执行。";

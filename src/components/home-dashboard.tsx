@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { SectionCard } from "@/components/section-card";
-import type { DailyBrief, ExerciseResult, SessionReport } from "@/lib/types";
+import type { ChatMessage, DailyBrief, DashboardSnapshot, ExerciseResult, SessionReport } from "@/lib/types";
 
 type ReportDraft = Omit<SessionReport, "id" | "createdAt" | "summary" | "performedDay"> & {
   performedDay?: SessionReport["performedDay"];
@@ -13,6 +13,30 @@ type ReportDraft = Omit<SessionReport, "id" | "createdAt" | "summary" | "perform
 type FeedbackState = {
   tone: "success" | "error" | "info";
   message: string;
+};
+
+type CoachReplyState = {
+  title: string;
+  content: string;
+  basis: ChatMessage["basis"];
+  contextSummary?: string;
+  source: "coach" | "review" | "error";
+};
+
+type StoredReportState = {
+  feedback: FeedbackState;
+  review?: Pick<CoachReplyState, "title" | "content" | "source">;
+};
+
+type SessionReportResponse = {
+  report: SessionReport;
+  review: string;
+};
+
+type CoachChatResponse = {
+  answer: string;
+  basis: ChatMessage["basis"];
+  contextSummary: string;
 };
 
 const REPORT_FEEDBACK_KEY = "fitcoach:report-feedback";
@@ -63,13 +87,29 @@ async function postJson<T>(url: string, payload: unknown) {
   return (await response.json()) as T;
 }
 
-interface HomeDashboardProps {
-  snapshot: {
-    profile: {
-      currentWeightKg: number;
-      sleepTargetHours: number;
+function buildInitialCoachReply(snapshot: DashboardSnapshot): CoachReplyState {
+  const latestAssistant = [...snapshot.chatMessages].reverse().find((message) => message.role === "assistant");
+  if (latestAssistant) {
+    return {
+      title: "最近一次教练回答",
+      content: latestAssistant.content,
+      basis: latestAssistant.basis,
+      contextSummary: snapshot.plan.goal,
+      source: "coach",
     };
+  }
+
+  return {
+    title: "教练问答",
+    content: "这里可以问训练原理、饮食策略、恢复安排。提交今日汇报后，这里也会自动显示今日点评。",
+    basis: [],
+    contextSummary: snapshot.persona.mission,
+    source: "coach",
   };
+}
+
+interface HomeDashboardProps {
+  snapshot: DashboardSnapshot;
   today: string;
   todayBrief: DailyBrief;
   isHistorical?: boolean;
@@ -87,6 +127,9 @@ export function HomeDashboard({
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAsking, startAskTransition] = useTransition();
+  const [coachInput, setCoachInput] = useState("训练日和休息日的碳水安排差多少更合理？");
+  const [coachReply, setCoachReply] = useState<CoachReplyState>(() => buildInitialCoachReply(snapshot));
   const [reportDraft, setReportDraft] = useState(() =>
     buildReportDraft(todayBrief, snapshot.profile.currentWeightKg, snapshot.profile.sleepTargetHours),
   );
@@ -104,11 +147,25 @@ export function HomeDashboard({
     }
 
     try {
-      setFeedback(JSON.parse(storedFeedback) as FeedbackState);
+      const parsed = JSON.parse(storedFeedback) as FeedbackState | StoredReportState;
+      if ("feedback" in parsed) {
+        setFeedback(parsed.feedback);
+        if (parsed.review) {
+          setCoachReply({
+            title: parsed.review.title,
+            content: parsed.review.content,
+            basis: [],
+            contextSummary: snapshot.plan.goal,
+            source: parsed.review.source,
+          });
+        }
+      } else {
+        setFeedback(parsed);
+      }
     } finally {
       window.sessionStorage.removeItem(REPORT_FEEDBACK_KEY);
     }
-  }, [today, todayBrief.id]);
+  }, [today, todayBrief.id, snapshot.plan.goal]);
 
   const isRestDay = todayBrief.isRestDay;
   const todayPlanLabel = todayBrief.calendarLabel;
@@ -166,6 +223,36 @@ export function HomeDashboard({
     }));
   }
 
+  function sendCoachMessage() {
+    if (!coachInput.trim()) {
+      return;
+    }
+
+    const message = coachInput.trim();
+    setCoachInput("");
+
+    startAskTransition(async () => {
+      try {
+        const data = await postJson<CoachChatResponse>("/api/assistant/chat", { message });
+        setCoachReply({
+          title: "教练回答",
+          content: data.answer,
+          basis: data.basis,
+          contextSummary: data.contextSummary,
+          source: "coach",
+        });
+      } catch (error) {
+        setCoachReply({
+          title: "教练回答失败",
+          content: error instanceof Error ? error.message : "问答失败，请稍后重试。",
+          basis: [],
+          contextSummary: snapshot.plan.goal,
+          source: "error",
+        });
+      }
+    });
+  }
+
   async function handleSubmitReport() {
     if (isRestDay || !todayBrief.scheduledDay) {
       return;
@@ -190,10 +277,28 @@ export function HomeDashboard({
         completed: normalizedResults.every((item) => item.performed !== false),
       };
 
-      await postJson("/api/session-report", payload);
-      const successFeedback = { tone: "success", message: "今日汇报已保存，页面已同步刷新。" } satisfies FeedbackState;
-      window.sessionStorage.setItem(REPORT_FEEDBACK_KEY, JSON.stringify(successFeedback));
-      setFeedback({ tone: "success", message: "今日汇报已保存，正在刷新页面..." });
+      const data = await postJson<SessionReportResponse>("/api/session-report", payload);
+      const successFeedback = { tone: "success", message: "今日汇报已保存，教练点评已更新。" } satisfies FeedbackState;
+      const reviewCard = {
+        title: `${todayPlanLabel} 今日点评`,
+        content: data.review,
+        source: "review" as const,
+      };
+      window.sessionStorage.setItem(
+        REPORT_FEEDBACK_KEY,
+        JSON.stringify({
+          feedback: successFeedback,
+          review: reviewCard,
+        } satisfies StoredReportState),
+      );
+      setCoachReply({
+        title: reviewCard.title,
+        content: reviewCard.content,
+        basis: [],
+        contextSummary: snapshot.plan.goal,
+        source: "review",
+      });
+      setFeedback({ tone: "success", message: "今日汇报已保存，正在同步点评与看板..." });
       router.refresh();
     } catch (error) {
       setFeedback({
@@ -490,6 +595,92 @@ export function HomeDashboard({
               </button>
             </div>
           )}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        eyebrow="Coach"
+        title="教练问答"
+        description="理论问题和今日点评都集中在这里。提交今日汇报后，回答区会自动刷新成当天点评。"
+      >
+        <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="rounded-[26px] bg-[#151811] p-5 text-white shadow-[0_24px_60px_rgba(18,22,16,0.22)]">
+            <div className="text-[11px] uppercase tracking-[0.28em] text-white/42">Context</div>
+            <div className="mt-3 rounded-[20px] border border-white/10 bg-white/6 px-4 py-4">
+              <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">当前计划摘要</div>
+              <p className="mt-2 text-sm leading-7 text-white/78">{coachReply.contextSummary ?? snapshot.plan.goal}</p>
+            </div>
+            <div className="mt-3 rounded-[20px] border border-white/10 bg-white/6 px-4 py-4">
+              <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">角色原则</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {snapshot.persona.corePrinciples.map((item) => (
+                  <span key={item} className="rounded-full border border-white/10 bg-white/8 px-3 py-1.5 text-xs text-white/70">
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div
+              className={`rounded-[26px] border p-5 shadow-[0_14px_36px_rgba(25,21,14,0.08)] ${
+                coachReply.source === "review"
+                  ? "border-[#cddfa0] bg-[#f4f9e6]"
+                  : coachReply.source === "error"
+                    ? "border-[#e6b5a8] bg-[#fff1ec]"
+                    : "border-black/10 bg-white/82"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Answer</div>
+                  <h3 className="mt-1 text-lg font-semibold text-[#151811]">{coachReply.title}</h3>
+                </div>
+                <div className="rounded-full bg-[#151811] px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] text-white/74">
+                  {coachReply.source === "review" ? "Today Review" : "Coach Reply"}
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-[20px] border border-black/8 bg-white/70 px-4 py-4">
+                <pre className="whitespace-pre-wrap text-sm leading-7 text-[#151811]">{coachReply.content}</pre>
+              </div>
+
+              {coachReply.basis.length ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {coachReply.basis.map((basis) => (
+                    <span key={`${basis.type}-${basis.label}`} className="rounded-full bg-[#f1ebd9] px-3 py-1.5 text-xs text-black/58">
+                      {basis.type} · {basis.label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="rounded-[26px] border border-black/10 bg-[#faf7ef] p-4">
+              <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Ask Coach</div>
+              <textarea
+                value={coachInput}
+                onChange={(event) => setCoachInput(event.target.value)}
+                rows={4}
+                className="mt-3 w-full resize-none rounded-[20px] border border-black/10 bg-white px-4 py-3 text-sm leading-7 outline-none"
+                placeholder="例如：休息日碳水为什么要更低？今天肩膀有点顶，推举该怎么替换？"
+              />
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs leading-6 text-black/48">
+                  理论解释、恢复策略、动作替换走这里；今天练后点评也会在同一块统一展示。
+                </p>
+                <button
+                  type="button"
+                  onClick={sendCoachMessage}
+                  disabled={isAsking}
+                  className="inline-flex items-center justify-center rounded-full bg-[#d5ff63] px-5 py-3 text-sm font-semibold text-[#151811] transition hover:bg-[#c2f24a] disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isAsking ? "思考中..." : "发送问题"}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </SectionCard>
     </div>

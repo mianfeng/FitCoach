@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 const items = [
   { href: "/", label: "Today" },
   { href: "/plan", label: "Plan" },
-  { href: "/ask", label: "Coach" },
   { href: "/history", label: "History" },
   { href: "/setup", label: "Setup" },
 ];
@@ -18,7 +17,7 @@ export function BottomNav() {
 
   return (
     <nav className="fixed inset-x-0 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-40 mx-auto w-[min(calc(100vw-1rem),30rem)] rounded-[24px] border border-black/10 bg-[rgba(19,22,17,0.96)] px-1.5 py-1.5 shadow-[0_18px_50px_rgba(18,22,16,0.3)] backdrop-blur">
-      <div className="grid grid-cols-5 gap-1">
+      <div className="grid grid-cols-4 gap-1">
       {items.map((item) => {
         const active = pathname === item.href;
         return (

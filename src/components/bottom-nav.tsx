@@ -17,7 +17,8 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(92vw,480px)] items-center justify-between rounded-full border border-black/10 bg-[rgba(19,22,17,0.92)] px-3 py-2 shadow-[0_18px_50px_rgba(18,22,16,0.28)] backdrop-blur">
+    <nav className="fixed inset-x-0 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-40 mx-auto w-[min(calc(100vw-0.75rem),30rem)] rounded-[26px] border border-black/10 bg-[rgba(19,22,17,0.96)] px-2 py-2 shadow-[0_18px_50px_rgba(18,22,16,0.3)] backdrop-blur">
+      <div className="grid grid-cols-5 gap-1">
       {items.map((item) => {
         const active = pathname === item.href;
         return (
@@ -25,14 +26,15 @@ export function BottomNav() {
             key={item.href}
             href={item.href}
             className={cn(
-              "rounded-full px-4 py-2 text-sm font-medium text-white/62 transition hover:text-white",
-              active && "bg-[#d5ff63] text-[#151811]",
+              "flex min-w-0 items-center justify-center rounded-[18px] px-1 py-3 text-center text-[13px] font-semibold tracking-[0.01em] text-white/84 transition hover:text-white",
+              active && "bg-[#d5ff63] text-[#151811] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]",
             )}
           >
-            {item.label}
+            <span className="truncate">{item.label}</span>
           </Link>
         );
       })}
+      </div>
     </nav>
   );
 }

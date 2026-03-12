@@ -14,6 +14,7 @@ import type {
   LongTermPlan,
   MealPrescription,
   MemorySummary,
+  PlanSnapshot,
   PlanAdjustmentProposal,
   SessionReport,
   UserProfile,
@@ -300,6 +301,23 @@ export function buildTodayAutofillBrief(
     reports,
     null,
   ).brief;
+}
+
+export function buildDailyBriefFromSnapshot(snapshot: PlanSnapshot): DailyBrief {
+  return {
+    id: snapshot.id,
+    date: snapshot.date,
+    scheduledDay: snapshot.scheduledDay === "rest" ? "A" : snapshot.scheduledDay,
+    workoutPrescription: snapshot.workoutPrescription,
+    mealPrescription: snapshot.mealPrescription,
+    reasoningSummary:
+      snapshot.scheduledDay === "rest"
+        ? ["该日期是历史休息日快照。"]
+        : [`历史计划快照：${snapshot.label}`],
+    sourceSnapshotId: snapshot.id,
+    userQuestion: "history-snapshot",
+    createdAt: snapshot.createdAt,
+  };
 }
 
 export function buildSessionSummary(

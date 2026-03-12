@@ -2,6 +2,7 @@ import type {
   CoachPersona,
   DailyBrief,
   LongTermPlan,
+  PlanSnapshot,
   PlanAdjustmentProposal,
   PlanSetupInput,
   SessionReport,
@@ -53,6 +54,7 @@ export const defaultPlan: LongTermPlan = {
   startingIntensityPct: 70,
   schedulePattern: "3on1off",
   calendarEntries: [],
+  planRevisionId: "planrev-seed",
   splitType: "PPL",
   progressionRule: {
     type: "linear",
@@ -398,6 +400,7 @@ export function buildEmptyDashboardSeed() {
     recentBrief: null as DailyBrief | null,
     recentReports: [] as SessionReport[],
     proposals: [] as PlanAdjustmentProposal[],
+    planSnapshots: [] as PlanSnapshot[],
     summaries: [] as { id: string; period: "daily" | "weekly"; date: string; summary: string; signals: string[]; createdAt: string }[],
     chatMessages: [],
   };

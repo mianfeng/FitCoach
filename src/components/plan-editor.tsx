@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { SectionCard } from "@/components/section-card";
 import { regenerateLinearPlan } from "@/lib/plan-generator";
@@ -15,6 +16,7 @@ interface PlanEditorProps {
 }
 
 const durationPresets = [4, 8, 12];
+const DRAFT_STORAGE_KEY = "fitcoach:plan-draft:v1";
 
 function groupByWeek(calendarEntries: PlanCalendarEntry[]) {
   const buckets = new Map<number, PlanCalendarEntry[]>();
@@ -41,28 +43,90 @@ function getCalendarClass(status: "today" | "done" | "pending", isRest: boolean)
     return "border-[#151811] bg-[#d5ff63] text-[#151811] shadow-[0_16px_28px_rgba(213,255,99,0.28)]";
   }
   if (status === "done") {
-    return "border-[#aac95a]/50 bg-[#eef6d2] text-[#151811]";
+    return "border-[#95bf40]/60 bg-[#e6f3c2] text-[#151811]";
   }
   if (isRest) {
-    return "border-black/8 bg-[#ece8de] text-black/52";
+    return "border-[#cfc6b5] bg-[#e7e0d2] text-black/55";
   }
-  return "border-black/10 bg-white text-[#151811]";
+  return "border-[#e4d7a7] bg-[#fff5d6] text-[#151811]";
 }
 
 export function PlanEditor({ initialData, recentReports, today, storageMode }: PlanEditorProps) {
   const [form, setForm] = useState(initialData);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [needsRegeneration, setNeedsRegeneration] = useState(false);
-  const [selectedWeek, setSelectedWeek] = useState(initialData.plan.calendarEntries[0]?.week ?? 1);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [hydratedDraft, setHydratedDraft] = useState(false);
+  const [selectedWeek, setSelectedWeek] = useState(
+    initialData.plan.calendarEntries.find((entry) => entry.date === today)?.week ?? initialData.plan.calendarEntries[0]?.week ?? 1,
+  );
   const [isPending, startTransition] = useTransition();
 
   const reportDates = useMemo(() => new Set(recentReports.map((report) => report.date)), [recentReports]);
   const groupedWeeks = useMemo(() => groupByWeek(form.plan.calendarEntries), [form.plan.calendarEntries]);
   const visibleWeek = groupedWeeks.find(([week]) => week === selectedWeek) ?? groupedWeeks[0];
 
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (!raw) {
+        setHydratedDraft(true);
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as {
+        savedAt: string;
+        needsRegeneration: boolean;
+        draftDirty: boolean;
+        data: PlanSetupInput;
+      };
+      const serverUpdatedAt = Date.parse(initialData.profile.updatedAt || "");
+      const draftUpdatedAt = Date.parse(parsed.savedAt || "");
+      if (Number.isFinite(draftUpdatedAt) && draftUpdatedAt >= serverUpdatedAt) {
+        setForm(parsed.data);
+        setNeedsRegeneration(parsed.needsRegeneration);
+        setDraftDirty(parsed.draftDirty);
+        setSelectedWeek(
+          parsed.data.plan.calendarEntries.find((entry) => entry.date === today)?.week ??
+            parsed.data.plan.calendarEntries[0]?.week ??
+            1,
+        );
+        setFeedback("已恢复未保存的计划草稿。");
+      } else {
+        window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+      }
+    } catch {
+      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } finally {
+      setHydratedDraft(true);
+    }
+  }, [initialData.profile.updatedAt, today]);
+
+  useEffect(() => {
+    if (!hydratedDraft) {
+      return;
+    }
+
+    if (!draftDirty) {
+      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(
+      DRAFT_STORAGE_KEY,
+      JSON.stringify({
+        savedAt: new Date().toISOString(),
+        needsRegeneration,
+        draftDirty,
+        data: form,
+      }),
+    );
+  }, [draftDirty, form, hydratedDraft, needsRegeneration]);
+
   function updateForm(mutator: (current: PlanSetupInput) => PlanSetupInput) {
     setForm((current) => mutator(current));
     setNeedsRegeneration(true);
+    setDraftDirty(true);
   }
 
   function updateTemplateExercise(
@@ -160,6 +224,7 @@ export function PlanEditor({ initialData, recentReports, today, storageMode }: P
     setForm(generated);
     setSelectedWeek(generated.plan.calendarEntries[0]?.week ?? 1);
     setNeedsRegeneration(false);
+    setDraftDirty(true);
     setFeedback("线性计划已生成，顶部训练日历已更新。");
   }
 
@@ -180,6 +245,11 @@ export function PlanEditor({ initialData, recentReports, today, storageMode }: P
           const error = await response.json().catch(() => ({ error: "保存失败" }));
           throw new Error(error.error ?? "保存失败");
         }
+        const saved = (await response.json()) as PlanSetupInput;
+        setForm(saved);
+        setNeedsRegeneration(false);
+        setDraftDirty(false);
+        window.localStorage.removeItem(DRAFT_STORAGE_KEY);
         setFeedback("长期计划和训练日历已保存。");
       } catch (error) {
         setFeedback(error instanceof Error ? error.message : "保存失败");
@@ -199,6 +269,9 @@ export function PlanEditor({ initialData, recentReports, today, storageMode }: P
           </div>
         }
       >
+        <div className="mb-4 rounded-[20px] border border-black/10 bg-white/82 px-4 py-3 text-sm text-[#151811]">
+          {draftDirty ? "草稿未保存" : "已保存正式计划"}
+        </div>
         <div className="grid grid-cols-3 gap-3">
           {[
             { label: "Current", value: `${form.profile.currentWeightKg}kg` },
@@ -235,20 +308,25 @@ export function PlanEditor({ initialData, recentReports, today, storageMode }: P
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full bg-[#eef6d2] px-3 py-1.5 text-[#151811]">已完成</span>
+            <span className="rounded-full bg-[#dff0bd] px-3 py-1.5 text-[#151811]">已完成</span>
             <span className="rounded-full bg-[#d5ff63] px-3 py-1.5 text-[#151811]">当日</span>
-            <span className="rounded-full bg-[#f4f0e3] px-3 py-1.5 text-[#151811]">未完成</span>
+            <span className="rounded-full bg-[#fff8e9] px-3 py-1.5 text-[#151811]">未完成训练日</span>
+            <span className="rounded-full bg-[#e4dfd2] px-3 py-1.5 text-[#151811]">休息日</span>
           </div>
 
           {visibleWeek ? (
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
               {visibleWeek[1].map((entry) => {
                 const status = getCalendarStatus(entry, reportDates, today);
-                return (
-                  <div
-                    key={entry.date}
-                    className={`rounded-[18px] border px-3 py-3 ${getCalendarClass(status, entry.slot === "rest")}`}
-                  >
+                const clickable = entry.date <= today;
+                const className = `rounded-[18px] border px-3 py-3 transition ${getCalendarClass(status, entry.slot === "rest")}`;
+                return clickable ? (
+                  <Link key={entry.date} href={`/?date=${entry.date}`} className={className}>
+                    <div className="text-[11px] uppercase tracking-[0.2em]">{formatDateLabel(entry.date)}</div>
+                    <div className="mt-2 text-sm font-semibold">{entry.label}</div>
+                  </Link>
+                ) : (
+                  <div key={entry.date} className={className}>
                     <div className="text-[11px] uppercase tracking-[0.2em]">{formatDateLabel(entry.date)}</div>
                     <div className="mt-2 text-sm font-semibold">{entry.label}</div>
                   </div>
@@ -264,7 +342,7 @@ export function PlanEditor({ initialData, recentReports, today, storageMode }: P
         title="长期计划总控台"
         description="这里输入当前状态、目标和周期，然后重新生成整段线性计划。"
       >
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-3 gap-3">
           <label className="block rounded-[22px] bg-white/82 p-4">
             <span className="text-xs uppercase tracking-[0.24em] text-black/42">当前体重</span>
             <input
@@ -314,7 +392,7 @@ export function PlanEditor({ initialData, recentReports, today, storageMode }: P
           </label>
         </div>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
+        <div className="mt-4 grid grid-cols-3 gap-3">
           <label className="block rounded-[22px] bg-white/82 p-4">
             <span className="text-xs uppercase tracking-[0.24em] text-black/42">开始日期</span>
             <input
@@ -329,7 +407,7 @@ export function PlanEditor({ initialData, recentReports, today, storageMode }: P
               className="mt-2 w-full bg-transparent text-lg font-semibold outline-none"
             />
           </label>
-          <div className="rounded-[22px] bg-[#151811] p-4 text-white md:col-span-2">
+          <div className="col-span-2 rounded-[22px] bg-[#151811] p-4 text-white">
             <div className="text-xs uppercase tracking-[0.24em] text-white/42">计划周期</div>
             <div className="mt-3 grid grid-cols-3 gap-2">
               {durationPresets.map((weeks) => (
@@ -398,57 +476,55 @@ export function PlanEditor({ initialData, recentReports, today, storageMode }: P
               <div className="mt-4 space-y-3">
                 {template.exercises.map((exercise, exerciseIndex) => (
                   <div key={exercise.id} className="rounded-[20px] border border-black/10 bg-[#faf7ef] p-4">
-                    <div className="grid gap-3 md:grid-cols-[1.25fr_0.95fr_auto]">
+                    <label className="block">
+                      <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">动作名</span>
+                      <input
+                        value={exercise.name}
+                        onChange={(event) =>
+                          updateTemplateExercise(template.dayCode, exerciseIndex, { name: event.target.value })
+                        }
+                        className="mt-2 w-full rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm font-semibold outline-none"
+                        placeholder="输入动作名称"
+                      />
+                    </label>
+
+                    <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2">
                       <label className="block">
-                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">动作名</span>
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">最大重量 / 自重</span>
                         <input
-                          value={exercise.name}
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          value={exercise.usesBodyweight ? "" : (exercise.oneRepMaxKg ?? "")}
                           onChange={(event) =>
-                            updateTemplateExercise(template.dayCode, exerciseIndex, { name: event.target.value })
+                            updateTemplateExercise(template.dayCode, exerciseIndex, {
+                              oneRepMaxKg: event.target.value ? Number(event.target.value) : undefined,
+                            })
                           }
-                          className="mt-2 w-full rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm font-semibold outline-none"
-                          placeholder="输入动作名称"
+                          disabled={exercise.usesBodyweight}
+                          className="mt-2 w-full rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm font-semibold outline-none disabled:opacity-40"
+                          placeholder="kg"
                         />
                       </label>
-
-                      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                        <label className="block">
-                          <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">最大重量 / 自重</span>
-                          <input
-                            type="number"
-                            step="0.5"
-                            min="0"
-                            value={exercise.usesBodyweight ? "" : (exercise.oneRepMaxKg ?? "")}
-                            onChange={(event) =>
-                              updateTemplateExercise(template.dayCode, exerciseIndex, {
-                                oneRepMaxKg: event.target.value ? Number(event.target.value) : undefined,
-                              })
-                            }
-                            disabled={exercise.usesBodyweight}
-                            className="mt-2 w-full rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm font-semibold outline-none disabled:opacity-40"
-                            placeholder="kg"
-                          />
-                        </label>
-                        <label className="mt-7 inline-flex items-center justify-center gap-2 rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm font-medium text-[#151811]">
-                          <input
-                            type="checkbox"
-                            checked={exercise.usesBodyweight ?? false}
-                            onChange={(event) =>
-                              updateTemplateExercise(template.dayCode, exerciseIndex, {
-                                usesBodyweight: event.target.checked,
-                                oneRepMaxKg: event.target.checked ? undefined : exercise.oneRepMaxKg,
-                              })
-                            }
-                            className="h-4 w-4 accent-[#151811]"
-                          />
-                          自重
-                        </label>
-                      </div>
+                      <label className="inline-flex h-[50px] items-center justify-center gap-2 rounded-[16px] border border-black/10 bg-white px-3 text-sm font-medium text-[#151811]">
+                        <input
+                          type="checkbox"
+                          checked={exercise.usesBodyweight ?? false}
+                          onChange={(event) =>
+                            updateTemplateExercise(template.dayCode, exerciseIndex, {
+                              usesBodyweight: event.target.checked,
+                              oneRepMaxKg: event.target.checked ? undefined : exercise.oneRepMaxKg,
+                            })
+                          }
+                          className="h-4 w-4 accent-[#151811]"
+                        />
+                        自重
+                      </label>
 
                       <button
                         type="button"
                         onClick={() => removeExercise(template.dayCode, exerciseIndex)}
-                        className="rounded-[16px] border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-[#151811] transition hover:bg-black/5"
+                        className="h-[50px] rounded-[16px] border border-black/10 bg-white px-4 text-sm font-semibold text-[#151811] transition hover:bg-black/5"
                       >
                         删除
                       </button>

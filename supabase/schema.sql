@@ -31,6 +31,12 @@ create table if not exists memory_summaries (
   created_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists plan_snapshots (
+  id text primary key,
+  snapshot jsonb not null,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
 create table if not exists chat_messages (
   id text primary key,
   message jsonb not null,
@@ -58,5 +64,7 @@ create index if not exists idx_daily_briefs_created_at on daily_briefs (created_
 create index if not exists idx_session_reports_created_at on session_reports (created_at desc);
 create index if not exists idx_plan_adjustments_created_at on plan_adjustments (created_at desc);
 create index if not exists idx_memory_summaries_created_at on memory_summaries (created_at desc);
+create index if not exists idx_plan_snapshots_created_at on plan_snapshots (created_at desc);
 create index if not exists idx_chat_messages_created_at on chat_messages (created_at desc);
+create index if not exists idx_plan_snapshots_date on plan_snapshots ((snapshot->>'date'));
 create index if not exists idx_knowledge_chunks_title on knowledge_chunks using gin (to_tsvector('simple', title || ' ' || content));

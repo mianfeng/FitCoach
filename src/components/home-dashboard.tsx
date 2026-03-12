@@ -57,9 +57,21 @@ interface HomeDashboardProps {
   snapshot: DashboardSnapshot;
   today: string;
   todayBrief: DailyBrief;
+  isHistorical?: boolean;
+  historyLabel?: string;
+  historyMissingSnapshot?: boolean;
+  historySlot?: "A" | "B" | "C" | "rest";
 }
 
-export function HomeDashboard({ snapshot, today, todayBrief }: HomeDashboardProps) {
+export function HomeDashboard({
+  snapshot,
+  today,
+  todayBrief,
+  isHistorical = false,
+  historyLabel,
+  historyMissingSnapshot = false,
+  historySlot,
+}: HomeDashboardProps) {
   const [, setReports] = useState(snapshot.recentReports);
   const [, setProposals] = useState(snapshot.proposals);
   const [, setSummaries] = useState(snapshot.summaries);
@@ -69,9 +81,9 @@ export function HomeDashboard({ snapshot, today, todayBrief }: HomeDashboardProp
     buildReportDraft(todayBrief, snapshot.profile.currentWeightKg, snapshot.profile.sleepTargetHours),
   );
   const [isPending, startTransition] = useTransition();
-  const todayPlanLabel =
-    snapshot.plan.calendarEntries.find((entry) => entry.date === today)?.label ??
-    `W1D1${todayBrief.scheduledDay}`;
+  const selectedSlot = historySlot ?? todayBrief.scheduledDay;
+  const isRestDay = selectedSlot === "rest";
+  const todayPlanLabel = historyLabel ?? snapshot.plan.calendarEntries.find((entry) => entry.date === today)?.label ?? `W1D1${todayBrief.scheduledDay}`;
 
   function updateExercise(index: number, patch: Partial<ExerciseResult>) {
     setReportDraft((current) => {
@@ -161,6 +173,23 @@ export function HomeDashboard({ snapshot, today, todayBrief }: HomeDashboardProp
 
   return (
     <div className="grid gap-5 pb-28">
+      {isHistorical ? (
+        <SectionCard
+          eyebrow="History"
+          title={`补报 ${todayPlanLabel ?? today}`}
+          description={
+            historyMissingSnapshot
+              ? "该日期缺少历史计划快照，当前先按正式计划回推结果展示。"
+              : "你正在查看历史日期的训练计划，可以直接补充当天汇报。"
+          }
+          className="bg-[rgba(249,247,235,0.96)]"
+        >
+          <div className="rounded-[20px] border border-black/10 bg-[#151811] px-4 py-3 text-sm text-white/78">
+            当前日期：{today} {isRestDay ? "· 休息日" : ""}
+          </div>
+        </SectionCard>
+      ) : null}
+
       <SectionCard eyebrow="Today" title="Today Board" className="overflow-hidden">
         <div className="rounded-[30px] bg-[#151811] p-4 text-white shadow-[0_28px_80px_rgba(18,22,16,0.28)] sm:p-5">
           <div className="rounded-[22px] border border-white/10 bg-white/6 p-4">
@@ -180,7 +209,7 @@ export function HomeDashboard({ snapshot, today, todayBrief }: HomeDashboardProp
                 </div>
               </div>
               <div className="rounded-full border border-white/10 bg-white/6 px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] text-white/72">
-                {todayBrief.mealPrescription.dayType === "rest" ? "Rest" : "Training"}
+                {isRestDay || todayBrief.mealPrescription.dayType === "rest" ? "Rest" : "Training"}
               </div>
             </div>
           </div>
@@ -224,23 +253,27 @@ export function HomeDashboard({ snapshot, today, todayBrief }: HomeDashboardProp
             </div>
 
             <div className="mt-4 overflow-hidden rounded-[18px] border border-black/8 bg-[#faf7ef]">
-              {todayBrief.workoutPrescription.exercises.map((exercise) => (
-                <article
-                  key={exercise.name}
-                  className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-black/8 px-3 py-3 last:border-b-0"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-[#151811]">{exercise.name}</div>
-                    <div className="truncate text-[11px] text-black/50">{exercise.focus}</div>
-                  </div>
-                  <div className="text-xs text-black/58">
-                    {exercise.sets} x {exercise.reps}
-                  </div>
-                  <div className="text-sm font-semibold text-[#151811]">
-                    {exercise.suggestedWeightKg ? `${exercise.suggestedWeightKg}kg` : "自重"}
-                  </div>
-                </article>
-              ))}
+              {todayBrief.workoutPrescription.exercises.length ? (
+                todayBrief.workoutPrescription.exercises.map((exercise) => (
+                  <article
+                    key={exercise.name}
+                    className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-black/8 px-3 py-3 last:border-b-0"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-[#151811]">{exercise.name}</div>
+                      <div className="truncate text-[11px] text-black/50">{exercise.focus}</div>
+                    </div>
+                    <div className="text-xs text-black/58">
+                      {exercise.sets} x {exercise.reps}
+                    </div>
+                    <div className="text-sm font-semibold text-[#151811]">
+                      {exercise.suggestedWeightKg ? `${exercise.suggestedWeightKg}kg` : "自重"}
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="px-3 py-4 text-sm text-black/56">该日期为休息日，不安排训练动作。</div>
+              )}
             </div>
           </div>
 
@@ -250,6 +283,7 @@ export function HomeDashboard({ snapshot, today, todayBrief }: HomeDashboardProp
               <button
                 type="button"
                 onClick={addExercise}
+                disabled={isRestDay}
                 className="rounded-full border border-black/12 bg-[#151811] px-3 py-1.5 text-xs font-semibold text-white"
               >
                 新增动作
@@ -369,10 +403,10 @@ export function HomeDashboard({ snapshot, today, todayBrief }: HomeDashboardProp
             <button
               type="button"
               onClick={handleSubmitReport}
-              disabled={isPending}
+              disabled={isPending || isRestDay}
               className="mt-4 w-full rounded-full bg-[#d5ff63] px-5 py-3.5 text-sm font-semibold text-[#151811] transition hover:bg-[#c2f24a] disabled:opacity-60"
             >
-              {isPending ? "提交中..." : "提交今日汇报"}
+              {isRestDay ? "休息日无需提交训练汇报" : isPending ? "提交中..." : "提交今日汇报"}
             </button>
 
             {feedback ? <p className="mt-3 text-sm text-black/56">{feedback}</p> : null}

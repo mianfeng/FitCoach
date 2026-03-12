@@ -38,6 +38,7 @@ export const planSetupSchema = z.object({
     durationWeeks: z.number().min(1).max(52).optional(),
     startingIntensityPct: z.number().min(1).max(100).optional(),
     schedulePattern: schedulePatternSchema.optional(),
+    planRevisionId: z.string().optional(),
     calendarEntries: z
       .array(
         z.object({

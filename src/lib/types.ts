@@ -82,6 +82,7 @@ export interface LongTermPlan {
   startingIntensityPct: number;
   schedulePattern: SchedulePattern;
   calendarEntries: PlanCalendarEntry[];
+  planRevisionId: string;
   splitType: "PPL";
   progressionRule: ProgressionRule;
   deloadRule: DeloadRule;
@@ -174,6 +175,17 @@ export interface DailyBrief {
   optionalConstraints?: string;
   createdAt: string;
   reused?: boolean;
+}
+
+export interface PlanSnapshot {
+  id: string;
+  date: string;
+  label: string;
+  scheduledDay: PlanCalendarSlot;
+  workoutPrescription: WorkoutPrescription;
+  mealPrescription: MealPrescription;
+  planRevisionId: string;
+  createdAt: string;
 }
 
 export interface ExerciseResult {

@@ -2,17 +2,52 @@ import { addDays } from "date-fns";
 
 import type {
   ExerciseTemplate,
+  MealPrescription,
+  PlanSnapshot,
   PlanCalendarEntry,
   PlanSetupInput,
   PlanCalendarSlot,
   WeeklyPhase,
   WorkoutTemplate,
 } from "@/lib/types";
-import { clamp, roundToIncrement } from "@/lib/utils";
+import { clamp, roundToIncrement, uid } from "@/lib/utils";
 
 const nonDeloadRepStyles = ["5x10", "4x10", "4x8", "3x8", "5x5", "3x5", "3x3", "3x3"];
 const nonDeloadLabels = ["初期", "初期", "中期", "中期", "冲刺期", "冲刺期", "极限期", "极限期"];
 const cycleSlots: PlanCalendarSlot[] = ["A", "B", "C", "rest"];
+
+function buildSnapshotMealPrescription(input: PlanSetupInput, mode: "training" | "rest"): MealPrescription {
+  const carbModifier = input.plan.manualOverrides?.carbModifierPerKg ?? 0;
+  const carbsPerKg =
+    mode === "training"
+      ? input.plan.mealStrategy.trainingCarbsPerKg + carbModifier
+      : input.plan.mealStrategy.restCarbsPerKg + carbModifier;
+
+  const macros = {
+    carbsG: Math.round(input.profile.currentWeightKg * carbsPerKg),
+    proteinG: Math.round(input.profile.currentWeightKg * input.plan.mealStrategy.proteinPerKg),
+    fatsG: Math.round(input.profile.currentWeightKg * input.plan.mealStrategy.fatsPerKg),
+  };
+
+  const examples = mode === "training" ? input.plan.mealStrategy.trainingExamples : input.plan.mealStrategy.restExamples;
+  const [breakfast, lunch, preworkout, postworkout] = input.plan.mealStrategy.mealSplit;
+
+  return {
+    dayType: mode,
+    macros,
+    meals: [
+      { label: "早餐", sharePercent: breakfast, examples: examples.slice(0, 2) },
+      { label: "其他餐", sharePercent: lunch, examples: examples.slice(1, 3) },
+      { label: "练前餐", sharePercent: preworkout, examples: ["馒头", "面包", "香蕉", "快碳饮料"] },
+      { label: "练后餐", sharePercent: postworkout, examples: ["米饭", "瘦肉", "牛奶", "高碳主食"] },
+    ],
+    guidance: [
+      mode === "training" ? "训练日碳水跟着训练走。" : "休息日保持蛋白稳定、碳水略低。",
+      "晚饭后训练时，可把晚饭视为练前餐。",
+      input.plan.manualOverrides?.recoveryMode === "deload" ? "当前为恢复模式。" : "按正式计划稳定执行。",
+    ],
+  };
+}
 
 function buildWeeklyPhases(durationWeeks: number, startingIntensityPct: number): WeeklyPhase[] {
   const baseIntensity = clamp(startingIntensityPct / 100, 0.45, 0.9);
@@ -183,6 +218,7 @@ export function normalizePlanSetupInput(input: PlanSetupInput): PlanSetupInput {
       durationWeeks,
       startingIntensityPct,
       schedulePattern: input.plan.schedulePattern ?? "3on1off",
+      planRevisionId: input.plan.planRevisionId ?? uid("planrev"),
       calendarEntries,
       progressionRule: {
         ...input.plan.progressionRule,
@@ -222,4 +258,55 @@ export function regenerateLinearPlan(input: PlanSetupInput): PlanSetupInput {
     },
     templates,
   };
+}
+
+export function buildPlanSnapshots(input: PlanSetupInput): PlanSnapshot[] {
+  const normalized = normalizePlanSetupInput(input);
+  const templatesByDay = new Map(normalized.templates.map((template) => [template.dayCode, template]));
+
+  return normalized.plan.calendarEntries.map((entry) => {
+    const weeklyPhase = normalized.plan.progressionRule.weeklyPhases[Math.max(0, entry.week - 1)];
+    const template = entry.slot === "rest" ? null : templatesByDay.get(entry.slot);
+    const mealPrescription = buildSnapshotMealPrescription(normalized, entry.slot === "rest" ? "rest" : "training");
+
+    return {
+      id: uid("snapshot"),
+      date: entry.date,
+      label: entry.label,
+      scheduledDay: entry.slot,
+      workoutPrescription: {
+        dayCode: entry.slot === "rest" ? "A" : entry.slot,
+        title: entry.slot === "rest" ? "恢复 / 休息日" : template?.name ?? `${entry.slot} 日训练`,
+        objective:
+          entry.slot === "rest"
+            ? "按休息日处理，优先恢复、活动和饮食执行。"
+            : template?.objective ?? `${entry.slot} 日标准训练`,
+        warmup: entry.slot === "rest" ? ["轻量活动 10 分钟", "拉伸 10 分钟"] : template?.warmup ?? [],
+        exercises:
+          entry.slot === "rest"
+            ? []
+            : (template?.exercises ?? []).map((exercise) => ({
+                name: exercise.name,
+                focus: exercise.focus,
+                sets: exercise.sets,
+                reps: exercise.reps,
+                suggestedWeightKg: exercise.usesBodyweight ? undefined : exercise.baseWeightKg,
+                restSeconds: exercise.restSeconds,
+                cues: exercise.cues,
+                reasoning: weeklyPhase
+                  ? `按 ${weeklyPhase.label} 周期安排，首轮工作重量基于保存时的正式计划。`
+                  : "按正式计划快照生成。",
+              })),
+        caution:
+          entry.slot === "rest"
+            ? ["休息日不安排主项训练，优先恢复。"]
+            : weeklyPhase
+              ? [`当前快照对应第 ${weeklyPhase.week} 周 ${weeklyPhase.label}。`]
+              : ["正式计划快照。"],
+      },
+      mealPrescription,
+      planRevisionId: normalized.plan.planRevisionId,
+      createdAt: new Date().toISOString(),
+    } satisfies PlanSnapshot;
+  });
 }

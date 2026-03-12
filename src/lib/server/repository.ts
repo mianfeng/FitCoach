@@ -3,7 +3,7 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { buildEmptyDashboardSeed, buildDefaultPlanSetup } from "@/lib/seed";
-import { normalizePlanSetupInput } from "@/lib/plan-generator";
+import { buildPlanSnapshots, normalizePlanSetupInput } from "@/lib/plan-generator";
 import { buildSessionSummary } from "@/lib/server/domain";
 import { env, hasSupabaseConfig } from "@/lib/server/env";
 import { loadLocalKnowledgeBundle, parseKnowledgeMarkdown, searchKnowledgeChunks } from "@/lib/server/knowledge";
@@ -14,6 +14,7 @@ import type {
   KnowledgeImportResult,
   LongTermPlan,
   MemorySummary,
+  PlanSnapshot,
   PlanAdjustmentProposal,
   PlanSetupInput,
   SessionReport,
@@ -53,6 +54,12 @@ type SummaryRow = {
   created_at?: string;
 };
 
+type SnapshotRow = {
+  id: string;
+  snapshot: PlanSnapshot;
+  created_at?: string;
+};
+
 type ChatRow = {
   id: string;
   message: ChatMessage;
@@ -60,6 +67,7 @@ type ChatRow = {
 };
 
 type MockStore = DashboardSnapshot & {
+  planSnapshots: PlanSnapshot[];
   knowledgeDocs: Awaited<ReturnType<typeof loadLocalKnowledgeBundle>>["doc"][];
   knowledgeChunks: Awaited<ReturnType<typeof loadLocalKnowledgeBundle>>["chunks"];
 };
@@ -68,6 +76,8 @@ export interface Repository {
   getDashboardSnapshot(): Promise<DashboardSnapshot>;
   getPlanSetup(): Promise<PlanSetupInput>;
   savePlanSetup(input: PlanSetupInput): Promise<PlanSetupInput>;
+  findPlanSnapshotByDate(date: string): Promise<PlanSnapshot | null>;
+  replacePlanSnapshots(entries: PlanSnapshot[]): Promise<PlanSnapshot[]>;
   findDailyBriefByDate(date: string): Promise<DailyBrief | null>;
   saveDailyBrief(brief: DailyBrief): Promise<DailyBrief>;
   listSessionReports(limit?: number): Promise<SessionReport[]>;
@@ -117,6 +127,9 @@ function createMockRepository(): Repository {
       store.persona = normalized.persona;
       store.plan = normalized.plan;
       store.templates = normalized.templates;
+      if (!store.planSnapshots.length) {
+        store.planSnapshots = buildPlanSnapshots(normalized);
+      }
       return {
         profile: normalized.profile,
         persona: normalized.persona,
@@ -146,11 +159,32 @@ function createMockRepository(): Repository {
     async savePlanSetup(input) {
       const store = await getMockStore();
       const normalized = normalizePlanSetupInput(input);
-      store.profile = normalized.profile;
-      store.persona = normalized.persona;
-      store.plan = normalized.plan;
-      store.templates = normalized.templates;
-      return normalized;
+      const finalized = {
+        ...normalized,
+        profile: {
+          ...normalized.profile,
+          updatedAt: new Date().toISOString(),
+        },
+        plan: {
+          ...normalized.plan,
+          planRevisionId: `planrev-${Date.now()}`,
+        },
+      };
+      store.profile = finalized.profile;
+      store.persona = finalized.persona;
+      store.plan = finalized.plan;
+      store.templates = finalized.templates;
+      store.planSnapshots = buildPlanSnapshots(finalized);
+      return finalized;
+    },
+    async findPlanSnapshotByDate(date) {
+      const store = await getMockStore();
+      return store.planSnapshots.find((snapshot) => snapshot.date === date) ?? null;
+    },
+    async replacePlanSnapshots(entries) {
+      const store = await getMockStore();
+      store.planSnapshots = entries;
+      return entries;
     },
     async findDailyBriefByDate(date) {
       const store = await getMockStore();
@@ -358,17 +392,63 @@ function createSupabaseRepository(): Repository {
     },
     async savePlanSetup(input) {
       const normalized = normalizePlanSetupInput(input);
+      const nextPlan = {
+        ...normalized.plan,
+        planRevisionId: `planrev-${Date.now()}`,
+      };
+      const finalized = {
+        ...normalized,
+        profile: {
+          ...normalized.profile,
+          updatedAt: new Date().toISOString(),
+        },
+        plan: nextPlan,
+      };
       const { error } = await supabase.from("coach_state").upsert({
         id: "primary",
-        profile: normalized.profile,
-        persona: normalized.persona,
-        active_plan: normalized.plan,
-        workout_templates: normalized.templates,
+        profile: finalized.profile,
+        persona: finalized.persona,
+        active_plan: finalized.plan,
+        workout_templates: finalized.templates,
       });
       if (error) {
         throw error;
       }
-      return normalized;
+      const snapshots = buildPlanSnapshots(finalized);
+      await this.replacePlanSnapshots(snapshots);
+      return finalized;
+    },
+    async findPlanSnapshotByDate(date) {
+      try {
+        const { data } = await supabase
+          .from("plan_snapshots")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .returns<SnapshotRow[]>();
+        return data?.map((row) => row.snapshot).find((snapshot) => snapshot.date === date) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    async replacePlanSnapshots(entries) {
+      try {
+        await supabase.from("plan_snapshots").delete().neq("id", "");
+        if (!entries.length) {
+          return [];
+        }
+        const { error } = await supabase.from("plan_snapshots").insert(
+          entries.map((snapshot) => ({
+            id: snapshot.id,
+            snapshot,
+          })),
+        );
+        if (error) {
+          throw error;
+        }
+        return entries;
+      } catch {
+        return [];
+      }
     },
     async findDailyBriefByDate(date) {
       const { data } = await supabase

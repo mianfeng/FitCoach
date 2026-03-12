@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { getRepository } from "@/lib/server/repository";
@@ -18,6 +19,9 @@ export async function POST(request: Request) {
     const saved = await repository.saveSessionReport(report);
     const proposals = await repository.listPlanAdjustments(3);
     const summaries = await repository.listMemorySummaries(3);
+    revalidatePath("/");
+    revalidatePath("/plan");
+    revalidatePath("/history");
     return NextResponse.json({ report: saved, proposals, summaries });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to save report";

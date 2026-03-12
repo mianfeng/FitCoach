@@ -4,6 +4,9 @@ import { buildDailyBriefFromSnapshot, buildTodayAutofillBrief } from "@/lib/serv
 import { getRepository } from "@/lib/server/repository";
 import { isoToday } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function Home({
   searchParams,
 }: {

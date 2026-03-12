@@ -3,6 +3,9 @@ import { hasSupabaseConfig } from "@/lib/server/env";
 import { getRepository } from "@/lib/server/repository";
 import { isoToday } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function PlanPage() {
   const repository = await getRepository();
   const planSetup = await repository.getPlanSetup();

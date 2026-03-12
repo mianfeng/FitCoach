@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 const dayCodeSchema = z.enum(["A", "B", "C"]);
+const performedDaySchema = z.union([dayCodeSchema, z.literal("rest")]);
 const schedulePatternSchema = z.literal("3on1off");
+const postWorkoutSourceSchema = z.enum(["dedicated", "lunch", "dinner"]);
 
 export const dailyBriefRequestSchema = z.object({
   date: z.string().min(1),
@@ -140,10 +142,19 @@ export const exerciseResultSchema = z.object({
   notes: z.string().optional(),
 });
 
+export const mealLogSchema = z.object({
+  breakfast: z.string(),
+  lunch: z.string(),
+  dinner: z.string(),
+  preWorkout: z.string(),
+  postWorkout: z.string(),
+  postWorkoutSource: postWorkoutSourceSchema,
+});
+
 export const sessionReportSchema = z.object({
   date: z.string().min(1),
-  performedDay: dayCodeSchema,
-  exerciseResults: z.array(exerciseResultSchema),
+  performedDay: performedDaySchema,
+  exerciseResults: z.array(exerciseResultSchema).optional(),
   bodyWeightKg: z.number().positive(),
   sleepHours: z.number().min(0).max(24),
   dietAdherence: z.union([
@@ -152,8 +163,11 @@ export const sessionReportSchema = z.object({
     z.literal(3),
     z.literal(4),
     z.literal(5),
-  ]),
+  ]).optional(),
   fatigue: z.number().min(1).max(10),
+  mealLog: mealLogSchema.optional(),
+  trainingReportText: z.string().min(1),
+  dailyReviewMarkdown: z.string().optional(),
   painNotes: z.string().optional(),
   recoveryNote: z.string().optional(),
   completed: z.boolean(),

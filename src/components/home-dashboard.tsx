@@ -4,10 +4,19 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { SectionCard } from "@/components/section-card";
-import type { ChatMessage, DailyBrief, DashboardSnapshot, ExerciseResult, SessionReport } from "@/lib/types";
+import type { ChatMessage, DashboardSnapshot, DailyBrief, MealLog, SessionReport } from "@/lib/types";
 
-type ReportDraft = Omit<SessionReport, "id" | "createdAt" | "summary" | "performedDay"> & {
-  performedDay?: SessionReport["performedDay"];
+type ReportDraft = {
+  date: string;
+  performedDay: SessionReport["performedDay"];
+  mealLog: MealLog;
+  trainingReportText: string;
+  bodyWeightKg: number;
+  sleepHours: number;
+  fatigue: number;
+  painNotes: string;
+  recoveryNote: string;
+  completed: true;
 };
 
 type FeedbackState = {
@@ -41,32 +50,40 @@ type CoachChatResponse = {
 
 const REPORT_FEEDBACK_KEY = "fitcoach:report-feedback";
 
-function buildReportDraft(brief: DailyBrief, bodyWeightKg: number, sleepHours: number): ReportDraft {
+const POST_WORKOUT_SOURCE_OPTIONS: Array<{ value: MealLog["postWorkoutSource"]; label: string }> = [
+  { value: "dedicated", label: "独立练后餐" },
+  { value: "lunch", label: "午餐同时是练后餐" },
+  { value: "dinner", label: "晚餐同时是练后餐" },
+];
+
+function buildReportDraft(
+  brief: DailyBrief,
+  snapshot: DashboardSnapshot,
+  date: string,
+  existingReport?: SessionReport,
+): ReportDraft {
   return {
-    date: brief.date,
-    performedDay: brief.scheduledDay,
-    exerciseResults: brief.workoutPrescription.exercises.map(
-      (exercise) =>
-        ({
-          exerciseName: exercise.name,
-          performed: true,
-          targetSets: exercise.sets,
-          targetReps: exercise.reps,
-          actualSets: exercise.sets,
-          actualReps: exercise.reps,
-          topSetWeightKg: exercise.suggestedWeightKg,
-          rpe: 8,
-          droppedSets: false,
-          notes: "",
-        }) satisfies ExerciseResult,
-    ),
-    bodyWeightKg,
-    sleepHours,
-    dietAdherence: 4,
-    fatigue: 5,
-    painNotes: "",
-    recoveryNote: "",
-    completed: !brief.isRestDay,
+    date,
+    performedDay: brief.calendarSlot,
+    mealLog: existingReport?.mealLog ?? {
+      breakfast: "",
+      lunch: "",
+      dinner: "",
+      preWorkout: "",
+      postWorkout: "",
+      postWorkoutSource: "dedicated",
+    },
+    trainingReportText:
+      existingReport?.trainingReportText ??
+      existingReport?.recoveryNote ??
+      existingReport?.painNotes ??
+      "",
+    bodyWeightKg: existingReport?.bodyWeightKg ?? snapshot.profile.currentWeightKg,
+    sleepHours: existingReport?.sleepHours ?? snapshot.profile.sleepTargetHours,
+    fatigue: existingReport?.fatigue ?? 5,
+    painNotes: existingReport?.painNotes ?? "",
+    recoveryNote: existingReport?.recoveryNote ?? "",
+    completed: true,
   };
 }
 
@@ -87,7 +104,17 @@ async function postJson<T>(url: string, payload: unknown) {
   return (await response.json()) as T;
 }
 
-function buildInitialCoachReply(snapshot: DashboardSnapshot): CoachReplyState {
+function buildInitialCoachReply(snapshot: DashboardSnapshot, existingReport?: SessionReport): CoachReplyState {
+  if (existingReport?.dailyReviewMarkdown) {
+    return {
+      title: "今日点评",
+      content: existingReport.dailyReviewMarkdown,
+      basis: [],
+      contextSummary: snapshot.plan.goal,
+      source: "review",
+    };
+  }
+
   const latestAssistant = [...snapshot.chatMessages].reverse().find((message) => message.role === "assistant");
   if (latestAssistant) {
     return {
@@ -101,7 +128,7 @@ function buildInitialCoachReply(snapshot: DashboardSnapshot): CoachReplyState {
 
   return {
     title: "教练问答",
-    content: "这里可以问训练原理、饮食策略、恢复安排。提交今日汇报后，这里也会自动显示今日点评。",
+    content: "这里可以问训练理论、饮食策略、恢复安排。提交今日汇报后，这里也会自动显示当天点评。",
     basis: [],
     contextSummary: snapshot.persona.mission,
     source: "coach",
@@ -128,16 +155,17 @@ export function HomeDashboard({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAsking, startAskTransition] = useTransition();
-  const [coachInput, setCoachInput] = useState("训练日和休息日的碳水安排差多少更合理？");
-  const [coachReply, setCoachReply] = useState<CoachReplyState>(() => buildInitialCoachReply(snapshot));
-  const [reportDraft, setReportDraft] = useState(() =>
-    buildReportDraft(todayBrief, snapshot.profile.currentWeightKg, snapshot.profile.sleepTargetHours),
-  );
+  const existingReport = snapshot.recentReports.find((item) => item.date === today);
+  const [coachInput, setCoachInput] = useState("");
+  const [coachReply, setCoachReply] = useState<CoachReplyState>(() => buildInitialCoachReply(snapshot, existingReport));
+  const [reportDraft, setReportDraft] = useState(() => buildReportDraft(todayBrief, snapshot, today, existingReport));
 
   useEffect(() => {
-    setReportDraft(buildReportDraft(todayBrief, snapshot.profile.currentWeightKg, snapshot.profile.sleepTargetHours));
+    const report = snapshot.recentReports.find((item) => item.date === today);
+    setReportDraft(buildReportDraft(todayBrief, snapshot, today, report));
+    setCoachReply(buildInitialCoachReply(snapshot, report));
     setShowAdvanced(false);
-  }, [today, todayBrief, snapshot.profile.currentWeightKg, snapshot.profile.sleepTargetHours]);
+  }, [snapshot, today, todayBrief]);
 
   useEffect(() => {
     const storedFeedback = window.sessionStorage.getItem(REPORT_FEEDBACK_KEY);
@@ -165,61 +193,35 @@ export function HomeDashboard({
     } finally {
       window.sessionStorage.removeItem(REPORT_FEEDBACK_KEY);
     }
-  }, [today, todayBrief.id, snapshot.plan.goal]);
+  }, [snapshot.plan.goal, today, todayBrief.id]);
 
-  const isRestDay = todayBrief.isRestDay;
-  const todayPlanLabel = todayBrief.calendarLabel;
-
-  function updateExercise(index: number, patch: Partial<ExerciseResult>) {
-    setReportDraft((current) => {
-      const nextResults = current.exerciseResults.map((item, itemIndex) => {
-        if (itemIndex !== index) {
-          return item;
-        }
-
-        const next = { ...item, ...patch };
-        if (patch.performed === false) {
-          next.actualSets = 0;
-          next.actualReps = "0";
-          next.topSetWeightKg = undefined;
-        }
-        return next;
-      });
-
-      return {
-        ...current,
-        exerciseResults: nextResults,
-        completed: nextResults.every((item) => item.performed !== false),
-      };
-    });
-  }
-
-  function updateStatusNote(value: string) {
+  function updateMeal(field: keyof Omit<MealLog, "postWorkoutSource">, value: string) {
     setReportDraft((current) => ({
       ...current,
-      painNotes: value,
-      recoveryNote: value,
+      mealLog: {
+        ...current.mealLog,
+        [field]: value,
+      },
     }));
   }
 
-  function addExercise() {
+  function updatePostWorkoutSource(source: MealLog["postWorkoutSource"]) {
     setReportDraft((current) => ({
       ...current,
-      completed: false,
-      exerciseResults: [
-        ...current.exerciseResults,
-        {
-          exerciseName: "新增动作",
-          performed: false,
-          targetSets: 1,
-          targetReps: "10",
-          actualSets: 0,
-          actualReps: "0",
-          rpe: 8,
-          droppedSets: false,
-          notes: "",
-        },
-      ],
+      mealLog: {
+        ...current.mealLog,
+        postWorkoutSource: source,
+        postWorkout: source === "dedicated" ? current.mealLog.postWorkout : "",
+      },
+    }));
+  }
+
+  function updateTrainingReport(value: string) {
+    setReportDraft((current) => ({
+      ...current,
+      trainingReportText: value,
+      painNotes: value,
+      recoveryNote: value,
     }));
   }
 
@@ -254,36 +256,37 @@ export function HomeDashboard({
   }
 
   async function handleSubmitReport() {
-    if (isRestDay || !todayBrief.scheduledDay) {
-      return;
-    }
-
     setIsSubmitting(true);
-    setFeedback({ tone: "info", message: "正在保存今日汇报..." });
+    setFeedback({ tone: "info", message: "正在保存今日记录并生成点评..." });
 
     try {
-      const normalizedResults = reportDraft.exerciseResults
-        .map((exercise) => ({
-          ...exercise,
-          performed: exercise.performed !== false,
-        }))
-        .filter((exercise) => exercise.exerciseName.trim().length > 0);
-
       const payload: ReportDraft = {
         ...reportDraft,
         date: today,
-        performedDay: todayBrief.scheduledDay,
-        exerciseResults: normalizedResults,
-        completed: normalizedResults.every((item) => item.performed !== false),
+        performedDay: todayBrief.calendarSlot,
+        completed: true,
+        painNotes: reportDraft.trainingReportText,
+        recoveryNote: reportDraft.trainingReportText,
+        mealLog:
+          reportDraft.mealLog.postWorkoutSource === "dedicated"
+            ? reportDraft.mealLog
+            : {
+                ...reportDraft.mealLog,
+                postWorkout: "",
+              },
       };
 
       const data = await postJson<SessionReportResponse>("/api/session-report", payload);
-      const successFeedback = { tone: "success", message: "今日汇报已保存，教练点评已更新。" } satisfies FeedbackState;
+      const successFeedback = {
+        tone: "success",
+        message: "今日记录已保存，点评已更新。",
+      } satisfies FeedbackState;
       const reviewCard = {
-        title: `${todayPlanLabel} 今日点评`,
+        title: `${todayBrief.calendarLabel} 今日点评`,
         content: data.review,
         source: "review" as const,
       };
+
       window.sessionStorage.setItem(
         REPORT_FEEDBACK_KEY,
         JSON.stringify({
@@ -291,6 +294,7 @@ export function HomeDashboard({
           review: reviewCard,
         } satisfies StoredReportState),
       );
+
       setCoachReply({
         title: reviewCard.title,
         content: reviewCard.content,
@@ -298,12 +302,12 @@ export function HomeDashboard({
         contextSummary: snapshot.plan.goal,
         source: "review",
       });
-      setFeedback({ tone: "success", message: "今日汇报已保存，正在同步点评与看板..." });
+      setFeedback({ tone: "success", message: "今日记录已保存，正在同步最新数据..." });
       router.refresh();
     } catch (error) {
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "汇报失败，请稍后重试。",
+        message: error instanceof Error ? error.message : "提交失败，请稍后重试。",
       });
     } finally {
       setIsSubmitting(false);
@@ -322,7 +326,7 @@ export function HomeDashboard({
       {isHistorical ? (
         <SectionCard
           eyebrow="History"
-          title={`补报 ${todayPlanLabel}`}
+          title={`补报 ${todayBrief.calendarLabel}`}
           description={
             historyMissingSnapshot
               ? "该日期缺少历史计划快照，当前先按正式计划日历回推展示。"
@@ -331,7 +335,7 @@ export function HomeDashboard({
           className="bg-[rgba(249,247,235,0.96)]"
         >
           <div className="rounded-[20px] border border-black/10 bg-[#151811] px-4 py-3 text-sm text-white/78">
-            当前日期：{today} {isRestDay ? "· 休息日" : ""}
+            当前日期：{today} {todayBrief.isRestDay ? "· 休息日" : ""}
           </div>
         </SectionCard>
       ) : null}
@@ -339,27 +343,29 @@ export function HomeDashboard({
       <SectionCard eyebrow="Today" title="Today Board" className="overflow-hidden">
         <div className="rounded-[30px] bg-[#151811] p-4 text-white shadow-[0_28px_80px_rgba(18,22,16,0.28)] sm:p-5">
           <div className="rounded-[22px] border border-white/10 bg-white/6 p-4">
-            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div className="min-w-0">
                 <div className="text-[10px] uppercase tracking-[0.28em] text-white/42">Training Day</div>
                 <div className="mt-3 space-y-2">
                   <span className="block font-display text-[38px] leading-none text-[#d5ff63] sm:text-[52px]">
-                    {todayPlanLabel}
+                    {todayBrief.calendarLabel}
                   </span>
                   <div className="space-y-1">
                     <div className="break-words text-lg font-semibold text-white sm:text-2xl">
                       {todayBrief.workoutPrescription.title}
                     </div>
                     <div className="text-xs leading-5 text-white/58 sm:text-sm">
-                      {isRestDay
+                      {todayBrief.isRestDay
                         ? "休息日饮食与恢复计划"
-                        : `${todayBrief.calendarSlot} 日训练 · ${todayBrief.mealPrescription.dayType === "rest" ? "休息日饮食" : "训练日饮食"}`}
+                        : `${todayBrief.calendarSlot} 日训练 · ${
+                            todayBrief.mealPrescription.dayType === "rest" ? "休息日饮食" : "训练日饮食"
+                          }`}
                     </div>
                   </div>
                 </div>
               </div>
               <div className="inline-flex w-fit items-center rounded-full border border-white/10 bg-white/6 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/76">
-                {isRestDay ? "Rest Day" : `Day ${todayBrief.calendarSlot}`}
+                {todayBrief.isRestDay ? "Rest Day" : `Day ${todayBrief.calendarSlot}`}
               </div>
             </div>
           </div>
@@ -391,8 +397,8 @@ export function HomeDashboard({
 
       <SectionCard
         eyebrow="Execution"
-        title="今日计划与汇报"
-        description={isRestDay ? "今天是休息日，页面只展示恢复与饮食，不开放训练汇报。" : "按该日期的正式计划训练并回填，不再跟顺延队列混用。"}
+        title="今日计划与记录"
+        description="训练计划仍按当天日历显示；实际训练和饮食改为文本记录，方便你按真实情况自由汇报。"
       >
         <div className="space-y-4">
           {feedback ? (
@@ -411,7 +417,7 @@ export function HomeDashboard({
                 <h3 className="mt-1 text-lg font-semibold text-[#151811]">{todayBrief.workoutPrescription.title}</h3>
               </div>
               <div className="w-fit rounded-full bg-[#d5ff63] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-[#151811]">
-                {isRestDay ? "Rest Day" : todayPlanLabel}
+                {todayBrief.calendarLabel}
               </div>
             </div>
 
@@ -444,157 +450,140 @@ export function HomeDashboard({
             </div>
           </div>
 
-          {isRestDay ? (
-            <div className="rounded-[26px] border border-black/10 bg-white/82 p-5">
-              <div className="rounded-[20px] border border-[#ddd2bb] bg-[#f7f2e5] px-4 py-4 text-sm leading-6 text-[#3b3428]">
-                休息日不开放训练汇报。你可以在明天对应的训练日再提交动作完成情况。
-              </div>
+          <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
+            <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Diet Log</div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {POST_WORKOUT_SOURCE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => updatePostWorkoutSource(option.value)}
+                  className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
+                    reportDraft.mealLog.postWorkoutSource === option.value
+                      ? "bg-[#151811] text-white"
+                      : "border border-black/10 bg-[#f7f3e8] text-[#151811]"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
-          ) : (
-            <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Exercise Report</div>
-                <button
-                  type="button"
-                  onClick={addExercise}
-                  className="w-fit rounded-full border border-black/12 bg-[#151811] px-4 py-2 text-sm font-semibold text-white"
-                >
-                  新增动作
-                </button>
-              </div>
 
-              <div className="mt-4 space-y-3">
-                {reportDraft.exerciseResults.map((exercise, index) => (
-                  <article
-                    key={`${exercise.exerciseName}-${index}`}
-                    className={`rounded-[20px] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] ${
-                      exercise.performed === false ? "bg-[#eee7d6]" : "bg-[#f7f3e8]"
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={exercise.performed !== false}
-                        onChange={(event) => updateExercise(index, { performed: event.target.checked })}
-                        className="mt-1 h-4 w-4 shrink-0 accent-[#151811]"
-                      />
-                      <input
-                        value={exercise.exerciseName}
-                        onChange={(event) => updateExercise(index, { exerciseName: event.target.value })}
-                        className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-[#151811] outline-none"
-                      />
+            <div className="mt-4 grid gap-3">
+              {[
+                { key: "breakfast", label: "早餐" },
+                { key: "lunch", label: "午餐" },
+                { key: "dinner", label: "晚餐" },
+                { key: "preWorkout", label: "练前餐" },
+              ].map((field) => {
+                const isPostWorkout =
+                  (field.key === "lunch" && reportDraft.mealLog.postWorkoutSource === "lunch") ||
+                  (field.key === "dinner" && reportDraft.mealLog.postWorkoutSource === "dinner");
+                const value = reportDraft.mealLog[field.key as keyof Omit<MealLog, "postWorkout" | "postWorkoutSource">];
+
+                return (
+                  <label key={field.key} className="block rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-black/42">{field.label}</span>
+                      {isPostWorkout ? (
+                        <span className="rounded-full bg-[#d5ff63] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#151811]">
+                          Post-workout
+                        </span>
+                      ) : null}
                     </div>
+                    <textarea
+                      value={value}
+                      onChange={(event) =>
+                        updateMeal(field.key as keyof Omit<MealLog, "postWorkoutSource">, event.target.value)
+                      }
+                      rows={2}
+                      className="mt-3 w-full resize-none bg-transparent text-sm leading-7 outline-none"
+                      placeholder={`输入${field.label}内容，如食物、份量、饮品。`}
+                    />
+                  </label>
+                );
+              })}
 
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      <label className="rounded-[16px] border border-black/10 bg-white px-2.5 py-2.5">
-                        <span className="text-[10px] uppercase tracking-[0.18em] text-black/42">重量</span>
-                        <input
-                          type="number"
-                          step="0.5"
-                          value={exercise.topSetWeightKg ?? ""}
-                          onChange={(event) =>
-                            updateExercise(index, {
-                              topSetWeightKg: event.target.value ? Number(event.target.value) : undefined,
-                            })
-                          }
-                          disabled={exercise.performed === false}
-                          className="mt-1 w-full bg-transparent text-center text-sm font-semibold outline-none disabled:opacity-40"
-                          placeholder="kg"
-                        />
-                      </label>
-                      <label className="rounded-[16px] border border-black/10 bg-white px-2.5 py-2.5">
-                        <span className="text-[10px] uppercase tracking-[0.18em] text-black/42">组数</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={exercise.actualSets}
-                          onChange={(event) => updateExercise(index, { actualSets: Number(event.target.value) })}
-                          disabled={exercise.performed === false}
-                          className="mt-1 w-full bg-transparent text-center text-sm font-semibold outline-none disabled:opacity-40"
-                          placeholder="组"
-                        />
-                      </label>
-                      <label className="rounded-[16px] border border-black/10 bg-white px-2.5 py-2.5">
-                        <span className="text-[10px] uppercase tracking-[0.18em] text-black/42">次数</span>
-                        <input
-                          value={exercise.actualReps}
-                          onChange={(event) => updateExercise(index, { actualReps: event.target.value })}
-                          disabled={exercise.performed === false}
-                          className="mt-1 w-full bg-transparent text-center text-sm font-semibold outline-none disabled:opacity-40"
-                          placeholder="次"
-                        />
-                      </label>
-                    </div>
-                  </article>
-                ))}
-              </div>
+              {reportDraft.mealLog.postWorkoutSource === "dedicated" ? (
+                <label className="block rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4">
+                  <span className="text-[11px] uppercase tracking-[0.22em] text-black/42">练后餐</span>
+                  <textarea
+                    value={reportDraft.mealLog.postWorkout}
+                    onChange={(event) => updateMeal("postWorkout", event.target.value)}
+                    rows={2}
+                    className="mt-3 w-full resize-none bg-transparent text-sm leading-7 outline-none"
+                    placeholder="输入练后餐内容，如米饭、蛋白粉、牛奶等。"
+                  />
+                </label>
+              ) : null}
+            </div>
+          </div>
 
-              <div className="mt-3">
-                <textarea
-                  value={reportDraft.recoveryNote ?? reportDraft.painNotes ?? ""}
-                  onChange={(event) => updateStatusNote(event.target.value)}
-                  rows={3}
-                  className="w-full rounded-[18px] border border-black/10 bg-white px-4 py-3 text-sm leading-7 outline-none"
-                  placeholder="描述今天的状态、是否新增动作、哪里不舒服、饮食执行情况。"
-                />
-              </div>
+          <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
+            <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">训练与状态文字汇报</div>
+            <textarea
+              value={reportDraft.trainingReportText}
+              onChange={(event) => updateTrainingReport(event.target.value)}
+              rows={5}
+              className="mt-4 w-full rounded-[18px] border border-black/10 bg-[#faf7ef] px-4 py-3 text-sm leading-7 outline-none"
+              placeholder="描述今天做了哪些动作、完成质量、哪里不舒服、恢复状态，以及任何临时调整。"
+            />
 
-              <div className="mt-3 rounded-[20px] border border-black/10 bg-[#f7f3e8] p-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvanced((current) => !current)}
-                  className="flex w-full items-center justify-between text-left"
-                >
-                  <span className="text-[11px] uppercase tracking-[0.24em] text-black/42">高级字段</span>
-                  <span className="text-xs font-semibold text-[#151811]">{showAdvanced ? "收起" : "展开"}</span>
-                </button>
-                {showAdvanced ? (
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                      <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">体重 kg</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={reportDraft.bodyWeightKg}
-                        onChange={(event) =>
-                          setReportDraft((current) => ({ ...current, bodyWeightKg: Number(event.target.value) }))
-                        }
-                        className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
-                      />
-                    </label>
-                    <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                      <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">睡眠 h</span>
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={reportDraft.sleepHours}
-                        onChange={(event) =>
-                          setReportDraft((current) => ({ ...current, sleepHours: Number(event.target.value) }))
-                        }
-                        className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
-                      />
-                    </label>
-                  </div>
-                ) : null}
-              </div>
-
+            <div className="mt-3 rounded-[20px] border border-black/10 bg-[#f7f3e8] p-3">
               <button
                 type="button"
-                onClick={handleSubmitReport}
-                disabled={isSubmitting}
-                className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[#d5ff63] px-5 py-3.5 text-sm font-semibold text-[#151811] transition hover:bg-[#c2f24a] disabled:cursor-not-allowed disabled:opacity-70"
+                onClick={() => setShowAdvanced((current) => !current)}
+                className="flex w-full items-center justify-between text-left"
               >
-                {isSubmitting ? (
-                  <>
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#151811]/25 border-t-[#151811]" />
-                    <span>提交中...</span>
-                  </>
-                ) : (
-                  "提交今日汇报"
-                )}
+                <span className="text-[11px] uppercase tracking-[0.24em] text-black/42">高级字段</span>
+                <span className="text-xs font-semibold text-[#151811]">{showAdvanced ? "收起" : "展开"}</span>
               </button>
+              {showAdvanced ? (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                    <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">体重 kg</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={reportDraft.bodyWeightKg}
+                      onChange={(event) =>
+                        setReportDraft((current) => ({ ...current, bodyWeightKg: Number(event.target.value) }))
+                      }
+                      className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                    />
+                  </label>
+                  <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                    <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">睡眠 h</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={reportDraft.sleepHours}
+                      onChange={(event) =>
+                        setReportDraft((current) => ({ ...current, sleepHours: Number(event.target.value) }))
+                      }
+                      className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                    />
+                  </label>
+                </div>
+              ) : null}
             </div>
-          )}
+
+            <button
+              type="button"
+              onClick={handleSubmitReport}
+              disabled={isSubmitting}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[#d5ff63] px-5 py-3.5 text-sm font-semibold text-[#151811] transition hover:bg-[#c2f24a] disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {isSubmitting ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#151811]/25 border-t-[#151811]" />
+                  <span>提交中...</span>
+                </>
+              ) : (
+                "提交今日汇报"
+              )}
+            </button>
+          </div>
         </div>
       </SectionCard>
 
@@ -668,7 +657,7 @@ export function HomeDashboard({
               />
               <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs leading-6 text-black/48">
-                  理论解释、恢复策略、动作替换走这里；今天练后点评也会在同一块统一展示。
+                  理论解释、恢复策略、动作替换走这里；练后点评也会在同一块统一显示。
                 </p>
                 <button
                   type="button"

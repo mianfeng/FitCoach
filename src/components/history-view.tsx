@@ -3,10 +3,78 @@
 import { useState, useTransition } from "react";
 
 import { SectionCard } from "@/components/section-card";
-import type { DashboardSnapshot } from "@/lib/types";
+import type { DashboardSnapshot, SessionReport } from "@/lib/types";
 
 interface HistoryViewProps {
   snapshot: DashboardSnapshot;
+}
+
+function summarizeMealLog(report: SessionReport) {
+  if (!report.mealLog) {
+    return [];
+  }
+
+  const postWorkoutLine =
+    report.mealLog.postWorkoutSource === "lunch"
+      ? `练后餐：午餐 (${report.mealLog.lunch || "未填写"})`
+      : report.mealLog.postWorkoutSource === "dinner"
+        ? `练后餐：晚餐 (${report.mealLog.dinner || "未填写"})`
+        : `练后餐：${report.mealLog.postWorkout || "未填写"}`;
+
+  return [
+    `早餐：${report.mealLog.breakfast || "未填写"}`,
+    `午餐：${report.mealLog.lunch || "未填写"}`,
+    `晚餐：${report.mealLog.dinner || "未填写"}`,
+    `练前餐：${report.mealLog.preWorkout || "未填写"}`,
+    postWorkoutLine,
+  ];
+}
+
+function renderReportBody(report: SessionReport) {
+  if (report.mealLog || report.trainingReportText || report.dailyReviewMarkdown) {
+    const mealLines = summarizeMealLog(report);
+
+    return (
+      <div className="mt-3 space-y-3">
+        <p className="text-sm text-black/62">
+          体重 {report.bodyWeightKg}kg / 睡眠 {report.sleepHours}h / 疲劳 {report.fatigue}/10
+        </p>
+        {report.trainingReportText ? (
+          <div className="rounded-[18px] border border-black/8 bg-[#faf7ef] px-4 py-3 text-sm leading-6 text-black/64">
+            {report.trainingReportText}
+          </div>
+        ) : null}
+        {mealLines.length ? (
+          <div className="rounded-[18px] border border-black/8 bg-[#faf7ef] px-4 py-3 text-sm leading-6 text-black/64">
+            {mealLines.map((line) => (
+              <div key={line}>{line}</div>
+            ))}
+          </div>
+        ) : null}
+        {report.dailyReviewMarkdown ? (
+          <div className="rounded-[18px] border border-[#cddfa0] bg-[#f4f9e6] px-4 py-3">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Daily Review</div>
+            <pre className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#151811]">
+              {report.dailyReviewMarkdown}
+            </pre>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const exerciseSummary = (report.exerciseResults ?? [])
+    .map((item) => `${item.exerciseName} ${item.topSetWeightKg ?? "-"}kg`)
+    .join(" · ");
+
+  return (
+    <div className="mt-3 space-y-2">
+      <p className="text-sm text-black/62">
+        体重 {report.bodyWeightKg}kg / 睡眠 {report.sleepHours}h / 饮食达标 {report.dietAdherence ?? "-"} / 5
+      </p>
+      <p className="text-sm leading-6 text-black/56">{exerciseSummary || "无动作明细"}</p>
+    </div>
+  );
 }
 
 export function HistoryView({ snapshot }: HistoryViewProps) {
@@ -33,7 +101,11 @@ export function HistoryView({ snapshot }: HistoryViewProps) {
 
   return (
     <div className="grid gap-5 pb-28 xl:grid-cols-[1fr_1fr]">
-      <SectionCard eyebrow="Reports" title="最近训练与饮食汇报" description="这里保存你最近的执行痕迹，是后续问答和处方的历史依据。">
+      <SectionCard
+        eyebrow="Reports"
+        title="最近训练与饮食汇报"
+        description="这里保存你最近的执行痕迹，是后续问答和处方的历史依据。"
+      >
         <div className="space-y-3">
           {snapshot.recentReports.length ? (
             snapshot.recentReports.map((report) => (
@@ -41,22 +113,19 @@ export function HistoryView({ snapshot }: HistoryViewProps) {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-xs uppercase tracking-[0.24em] text-black/42">{report.date}</div>
-                    <div className="mt-1 text-lg font-semibold text-[#151811]">{report.performedDay} 日</div>
+                    <div className="mt-1 text-lg font-semibold text-[#151811]">
+                      {report.performedDay === "rest" ? "休息日" : `${report.performedDay} 日`}
+                    </div>
                   </div>
                   <div className="rounded-full bg-[#151811] px-3 py-1 text-xs uppercase tracking-[0.24em] text-white/70">
                     Fatigue {report.fatigue}
                   </div>
                 </div>
-                <p className="mt-3 text-sm text-black/62">
-                  体重 {report.bodyWeightKg}kg / 睡眠 {report.sleepHours}h / 饮食达标 {report.dietAdherence}/5
-                </p>
-                <p className="mt-2 text-sm leading-6 text-black/56">
-                  {report.exerciseResults.map((item) => `${item.exerciseName} ${item.topSetWeightKg ?? "-"}kg`).join(" · ")}
-                </p>
+                {renderReportBody(report)}
               </article>
             ))
           ) : (
-            <p className="text-sm text-black/55">还没有历史汇报，首页提交第一条之后这里会开始累计。</p>
+            <p className="text-sm text-black/55">还没有历史汇报，首页提交第一条之后这里会开始累积。</p>
           )}
         </div>
       </SectionCard>

@@ -72,7 +72,10 @@ export function getCurrentWeeklyPhase(plan: LongTermPlan, date: string) {
 }
 
 export function getNextScheduledDay(plan: LongTermPlan, reports: SessionReport[]) {
-  const completedReports = sortReportsDesc(reports).filter((report) => report.completed);
+  const completedReports = sortReportsDesc(reports).filter(
+    (report): report is SessionReport & { performedDay: WorkoutTemplate["dayCode"] } =>
+      report.completed && report.performedDay !== "rest",
+  );
   if (!completedReports.length) {
     return plan.progressionRule.daySequence[0];
   }
@@ -93,7 +96,9 @@ function isExercisePerformed(result: ExerciseResult) {
 
 function getLatestExerciseResult(reports: SessionReport[], exerciseName: string) {
   for (const report of sortReportsDesc(reports)) {
-    const result = report.exerciseResults.find((item) => item.exerciseName === exerciseName && isExercisePerformed(item));
+    const result = (report.exerciseResults ?? []).find(
+      (item) => item.exerciseName === exerciseName && isExercisePerformed(item),
+    );
     if (result) {
       return result;
     }
@@ -310,12 +315,20 @@ export function buildDailyBrief(
 }
 
 function averageReportRpe(report: SessionReport) {
-  return average(report.exerciseResults.map((item) => item.rpe));
+  return average((report.exerciseResults ?? []).map((item) => item.rpe));
 }
 
 function summarizeExerciseOutcome(report: SessionReport) {
-  const completedCount = report.exerciseResults.filter((item) => isExercisePerformed(item)).length;
-  return `${completedCount}/${report.exerciseResults.length} 个动作完成度稳定`;
+  if (report.exerciseResults?.length) {
+    const completedCount = report.exerciseResults.filter((item) => isExercisePerformed(item)).length;
+    return `${completedCount}/${report.exerciseResults.length} 个动作有结构化记录`;
+  }
+
+  if (report.trainingReportText?.trim()) {
+    return `训练文字汇报：${report.trainingReportText.trim().slice(0, 42)}`;
+  }
+
+  return report.performedDay === "rest" ? "休息日仅记录饮食与恢复" : "已提交日报，未记录动作细节";
 }
 
 export function buildTodayAutofillBrief(
@@ -366,18 +379,44 @@ export function buildSessionSummary(
   const recent = sortReportsDesc([report, ...recentReports]);
   const highStressWindow = recent.slice(0, plan.deloadRule.consecutiveHighFatigueDays);
   const averageRpe = averageReportRpe(report);
+  const mealLog = report.mealLog;
+  const mealSignal =
+    mealLog
+      ? `五餐记录 ${
+          [
+            mealLog.breakfast,
+            mealLog.lunch,
+            mealLog.dinner,
+            mealLog.preWorkout,
+            mealLog.postWorkoutSource === "dedicated"
+              ? mealLog.postWorkout
+              : mealLog.postWorkoutSource === "lunch"
+                ? "午餐兼练后餐"
+                : "晚餐兼练后餐",
+          ].filter((item) => item.trim().length > 0).length
+        }/5`
+      : report.dietAdherence
+        ? `饮食达标 ${report.dietAdherence}/5`
+        : "饮食记录待补充";
+  const trainingSignal = report.trainingReportText?.trim()
+    ? `训练文字 ${report.trainingReportText.slice(0, 28)}${report.trainingReportText.length > 28 ? "..." : ""}`
+    : summarizeExerciseOutcome(report);
   const signals: string[] = [
     `睡眠 ${report.sleepHours}h`,
     `疲劳 ${report.fatigue}/10`,
-    `饮食达标 ${report.dietAdherence}/5`,
-    summarizeExerciseOutcome(report),
+    mealSignal,
+    trainingSignal,
   ];
 
-  let summary = `${report.performedDay} 日已记录。`;
-  if (report.completed) {
-    summary += averageRpe >= 9 ? " 本次训练强度偏高。" : " 主项推进仍在可控区间。";
+  let summary = "";
+  if (report.performedDay === "rest") {
+    summary = "休息日记录已保存，重点跟踪恢复与餐饮执行。";
+  } else if (!report.completed) {
+    summary = `${report.performedDay} 日记录已保存，但本次执行未完整完成，下一次先以稳住动作质量为主。`;
+  } else if (averageRpe >= 9) {
+    summary = `${report.performedDay} 日记录已保存，本次训练强度偏高，后续要优先看恢复而不是盲目加重。`;
   } else {
-    summary += " 本次未完整执行，下一次建议不要加重。";
+    summary = `${report.performedDay} 日记录已保存，当前执行质量仍在可继续推进的区间。`;
   }
 
   const proposals: PlanAdjustmentProposal[] = [];
@@ -494,60 +533,67 @@ export function buildDailyReviewMarkdown(params: {
   targetMacros: MealPrescription["macros"];
 }) {
   const { report, targetMacros } = params;
-  const adherenceFactorMap: Record<number, number> = {
-    1: 0.58,
-    2: 0.74,
-    3: 0.88,
-    4: 0.97,
-    5: 1.02,
-  };
-  const adherenceFactor = adherenceFactorMap[report.dietAdherence] ?? 0.88;
-  const estimatedMacros = {
-    proteinG: Math.round(targetMacros.proteinG * adherenceFactor),
-    carbsG: Math.round(targetMacros.carbsG * adherenceFactor),
-    fatsG: Math.round(targetMacros.fatsG * adherenceFactor),
-  };
-  const estimatedKcal =
-    estimatedMacros.proteinG * 4 + estimatedMacros.carbsG * 4 + estimatedMacros.fatsG * 9;
-  const targetKcal = targetMacros.proteinG * 4 + targetMacros.carbsG * 4 + targetMacros.fatsG * 9;
   const averageRpe = averageReportRpe(report);
-  const performedCount = report.exerciseResults.filter((item) => isExercisePerformed(item)).length;
-  const droppedSetCount = report.exerciseResults.filter((item) => item.droppedSets).length;
+  const performedCount = (report.exerciseResults ?? []).filter((item) => isExercisePerformed(item)).length;
+  const droppedSetCount = (report.exerciseResults ?? []).filter((item) => item.droppedSets).length;
+  const hasMealText = Boolean(
+    report.mealLog &&
+      [
+        report.mealLog.breakfast,
+        report.mealLog.lunch,
+        report.mealLog.dinner,
+        report.mealLog.preWorkout,
+        report.mealLog.postWorkout,
+      ].some((item) => item.trim().length > 0),
+  );
 
   let overloadStatus: "达标" | "停滞" | "需减载" = "达标";
-  let overloadComment = "主项完成度稳定，今天的训练质量在可继续推进的区间。";
+  let overloadComment = "训练质量稳定，当前仍在可继续推进的区间。";
 
-  if (report.fatigue >= 8 || averageRpe >= 9.3 || droppedSetCount >= 2 || report.sleepHours < 5.5) {
+  if (report.performedDay === "rest") {
+    overloadStatus = "达标";
+    overloadComment = "今天是休息日，重点应放在恢复、补水和按计划进食。";
+  } else if (report.fatigue >= 8 || averageRpe >= 9.3 || droppedSetCount >= 2 || report.sleepHours < 5.5) {
     overloadStatus = "需减载";
-    overloadComment = "疲劳和主观强度偏高，继续硬顶只会拉低下一次训练质量。";
-  } else if (!report.completed || performedCount < Math.max(1, report.exerciseResults.length - 1) || averageRpe < 7.2) {
+    overloadComment = "疲劳和主观强度偏高，后续应优先恢复，避免继续硬顶。";
+  } else if (!report.completed || (performedCount === 0 && !report.trainingReportText?.trim())) {
     overloadStatus = "停滞";
-    overloadComment = "今天更像保量完成，刺激不足以支撑有效超负荷推进。";
+    overloadComment = "训练信息不足或执行不完整，暂时不适合继续加压推进。";
   }
 
   let qualityBadge = "🟡 警告";
-  let qualityReason = "训练和饮食有完成，但离理想执行还有明显差距。";
+  let qualityReason = "今日记录已完成，但离理想执行仍有差距。";
 
-  if (overloadStatus === "达标" && report.dietAdherence >= 4 && report.sleepHours >= 7 && report.fatigue <= 7) {
+  if (
+    overloadStatus === "达标" &&
+    report.sleepHours >= 7 &&
+    report.fatigue <= 7 &&
+    (hasMealText || (report.dietAdherence ?? 0) >= 4)
+  ) {
     qualityBadge = "🟢 完美";
-    qualityReason = "训练完成度、恢复状态和饮食贴合度都在计划区间内。";
-  } else if (overloadStatus === "需减载" || report.dietAdherence <= 2 || performedCount === 0) {
+    qualityReason = "恢复、餐饮记录和执行质量都处在计划区间内。";
+  } else if (overloadStatus === "需减载" || report.sleepHours < 5 || report.fatigue >= 9) {
     qualityBadge = "🔴 灾难";
-    qualityReason = "恢复或执行质量已经明显越界，继续照常推进风险过高。";
+    qualityReason = "恢复状态已经明显越界，继续按原计划推进风险过高。";
   }
 
+  const targetKcal = targetMacros.proteinG * 4 + targetMacros.carbsG * 4 + targetMacros.fatsG * 9;
   const gapAnalysis = [
-    formatMacroDelta(estimatedKcal, targetKcal, "热量(kcal)"),
-    formatMacroDelta(estimatedMacros.proteinG, targetMacros.proteinG, "蛋白质(g)"),
-    formatMacroDelta(estimatedMacros.carbsG, targetMacros.carbsG, "碳水(g)"),
-    formatMacroDelta(estimatedMacros.fatsG, targetMacros.fatsG, "脂肪(g)"),
+    `目标热量约 ${targetKcal} kcal`,
+    `目标蛋白 ${targetMacros.proteinG} g`,
+    `目标碳水 ${targetMacros.carbsG} g`,
+    `目标脂肪 ${targetMacros.fatsG} g`,
+  ].join(" / ");
+  const fallbackDeltaExample = [
+    formatMacroDelta(targetKcal, targetKcal, "热量(kcal)"),
+    formatMacroDelta(targetMacros.proteinG, targetMacros.proteinG, "蛋白质(g)"),
   ].join(" / ");
 
   return [
     "1. 📊 数据核算",
     "",
-    `- 估算摄入：${estimatedKcal} kcal / ${estimatedMacros.proteinG} g / ${estimatedMacros.carbsG} g / ${estimatedMacros.fatsG} g`,
-    `- 缺口分析：${gapAnalysis}`,
+    "- 估算摄入：待估算 / 待估算 / 待估算 / 待估算",
+    `- 缺口分析：${gapAnalysis}；当前已保存五餐文本，待模型估算或后续手动核算（${fallbackDeltaExample}）`,
     "",
     "2. 🏋️ 训练评估",
     "",
@@ -556,20 +602,27 @@ export function buildDailyReviewMarkdown(params: {
     "",
     "3. 🎯 质量评级",
     "",
-    `- ${qualityBadge}：${qualityReason}`,
+    `- ${qualityBadge}（${qualityReason}）`,
   ].join("\n");
 }
 
 export function buildRecentReportSummary(reports: SessionReport[]) {
   if (!reports.length) {
-    return "暂无历史汇报，默认按长期计划首日执行。";
+    return "暂无历史汇报，默认按当前正式计划执行。";
   }
 
   const latest = sortReportsDesc(reports).slice(0, 3);
   const weightTrend = latest.map((item) => `${item.date} ${item.bodyWeightKg}kg`).join(" / ");
   const fatigueTrend = latest.map((item) => item.fatigue).join(" -> ");
+  const latestTraining = latest
+    .map((item) =>
+      item.trainingReportText?.trim()
+        ? `${item.date} ${item.trainingReportText.slice(0, 18)}${item.trainingReportText.length > 18 ? "..." : ""}`
+        : `${item.date} ${item.performedDay}`,
+    )
+    .join(" / ");
 
-  return `最近 ${latest.length} 次记录体重为 ${weightTrend}；疲劳趋势 ${fatigueTrend}；最新训练日 ${latest[0].performedDay}。`;
+  return `最近 ${latest.length} 次记录体重为 ${weightTrend}；疲劳趋势 ${fatigueTrend}；最新训练摘要 ${latestTraining}。`;
 }
 
 export function buildChatContextBundle(params: {
@@ -635,8 +688,10 @@ export function buildHistoryBasis(reports: SessionReport[]) {
     (report) =>
       ({
         type: "history",
-        label: `${report.date} ${report.performedDay} 日`,
-        excerpt: `体重 ${report.bodyWeightKg}kg，睡眠 ${report.sleepHours}h，疲劳 ${report.fatigue}/10`,
+        label: `${report.date} ${report.performedDay === "rest" ? "休息日" : `${report.performedDay} 日`}`,
+        excerpt: report.trainingReportText?.trim()
+          ? report.trainingReportText.slice(0, 80)
+          : `体重 ${report.bodyWeightKg}kg，睡眠 ${report.sleepHours}h，疲劳 ${report.fatigue}/10`,
       }) satisfies KnowledgeBasis,
   );
 }
@@ -644,24 +699,34 @@ export function buildHistoryBasis(reports: SessionReport[]) {
 export function createReportDraftFromBrief(brief: DailyBrief) {
   return {
     date: isoToday(),
-    performedDay: brief.scheduledDay ?? "A",
-    exerciseResults: brief.workoutPrescription.exercises.map(
-      (exercise) =>
-        ({
-          exerciseName: exercise.name,
-          performed: true,
-          targetSets: exercise.sets,
-          targetReps: exercise.reps,
-          actualSets: exercise.sets,
-          actualReps: exercise.reps,
-          topSetWeightKg: exercise.suggestedWeightKg,
-          rpe: 8,
-          droppedSets: false,
-        }) satisfies ExerciseResult,
-    ),
+    performedDay: brief.calendarSlot,
+    mealLog: {
+      breakfast: "",
+      lunch: "",
+      dinner: "",
+      preWorkout: "",
+      postWorkout: "",
+      postWorkoutSource: "dedicated" as const,
+    },
+    trainingReportText: "",
+    exerciseResults: brief.isRestDay
+      ? []
+      : brief.workoutPrescription.exercises.map(
+          (exercise) =>
+            ({
+              exerciseName: exercise.name,
+              performed: true,
+              targetSets: exercise.sets,
+              targetReps: exercise.reps,
+              actualSets: exercise.sets,
+              actualReps: exercise.reps,
+              topSetWeightKg: exercise.suggestedWeightKg,
+              rpe: 8,
+              droppedSets: false,
+            }) satisfies ExerciseResult,
+        ),
     bodyWeightKg: 60,
     sleepHours: 7.5,
-    dietAdherence: 4 as const,
     fatigue: 5,
     completed: true,
   };

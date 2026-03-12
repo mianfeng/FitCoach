@@ -105,6 +105,7 @@ export const planSetupSchema = z.object({
           cues: z.array(z.string()),
           baseWeightKg: z.number().optional(),
           oneRepMaxKg: z.number().positive().optional(),
+          usesBodyweight: z.boolean().optional(),
           oneRepMaxRef: z.string().optional(),
           progressionModel: z.enum(["percentage", "fixed"]),
           percentageOf1RM: z.number().optional(),

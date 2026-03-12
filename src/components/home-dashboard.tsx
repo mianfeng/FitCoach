@@ -69,6 +69,9 @@ export function HomeDashboard({ snapshot, today, todayBrief }: HomeDashboardProp
     buildReportDraft(todayBrief, snapshot.profile.currentWeightKg, snapshot.profile.sleepTargetHours),
   );
   const [isPending, startTransition] = useTransition();
+  const todayPlanLabel =
+    snapshot.plan.calendarEntries.find((entry) => entry.date === today)?.label ??
+    `W1D1${todayBrief.scheduledDay}`;
 
   function updateExercise(index: number, patch: Partial<ExerciseResult>) {
     setReportDraft((current) => {
@@ -165,8 +168,8 @@ export function HomeDashboard({ snapshot, today, todayBrief }: HomeDashboardProp
               <div>
                 <div className="text-[10px] uppercase tracking-[0.28em] text-white/42">Training Day</div>
                 <div className="mt-2 flex items-end gap-3">
-                  <span className="font-display text-4xl leading-none text-[#d5ff63] sm:text-5xl">
-                    {todayBrief.scheduledDay}
+                  <span className="font-display text-2xl leading-none text-[#d5ff63] sm:text-4xl">
+                    {todayPlanLabel}
                   </span>
                   <div className="pb-1">
                     <div className="text-sm font-semibold text-white sm:text-base">{todayBrief.workoutPrescription.title}</div>

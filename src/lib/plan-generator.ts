@@ -81,6 +81,10 @@ function parseRepStyle(repStyle: string) {
 }
 
 function inferOneRepMaxKg(exercise: ExerciseTemplate, oneRepMaxes: Record<string, number>) {
+  if (exercise.usesBodyweight) {
+    return undefined;
+  }
+
   if (exercise.oneRepMaxKg && exercise.oneRepMaxKg > 0) {
     return exercise.oneRepMaxKg;
   }
@@ -109,7 +113,7 @@ function buildGeneratedExercise(
   const incrementKg = exercise.incrementKg || 2.5;
   const percentageOf1RM = exercise.percentageOf1RM ?? 1;
   const generatedBaseWeight =
-    oneRepMaxKg && oneRepMaxKg > 0
+    !exercise.usesBodyweight && oneRepMaxKg && oneRepMaxKg > 0
       ? roundToIncrement(oneRepMaxKg * (startingIntensityPct / 100) * percentageOf1RM, incrementKg)
       : undefined;
 
@@ -123,6 +127,7 @@ function buildGeneratedExercise(
     cues: exercise.cues.length ? exercise.cues : ["保持动作标准", "完整控制离心", "不要为加重破坏轨迹"],
     baseWeightKg: generatedBaseWeight,
     oneRepMaxKg,
+    usesBodyweight: exercise.usesBodyweight ?? false,
     progressionModel: "percentage",
     percentageOf1RM,
     incrementKg,

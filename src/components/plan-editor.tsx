@@ -1,34 +1,64 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 
 import { SectionCard } from "@/components/section-card";
 import { regenerateLinearPlan } from "@/lib/plan-generator";
-import type { DayCode, PlanSetupInput } from "@/lib/types";
+import type { DayCode, PlanCalendarEntry, PlanSetupInput, SessionReport } from "@/lib/types";
 import { formatDateLabel, uid } from "@/lib/utils";
 
 interface PlanEditorProps {
   initialData: PlanSetupInput;
+  recentReports: SessionReport[];
+  today: string;
   storageMode: "mock" | "supabase";
 }
 
 const durationPresets = [4, 8, 12];
 
-function groupByWeek(calendarEntries: PlanSetupInput["plan"]["calendarEntries"]) {
-  const buckets = new Map<number, PlanSetupInput["plan"]["calendarEntries"]>();
+function groupByWeek(calendarEntries: PlanCalendarEntry[]) {
+  const buckets = new Map<number, PlanCalendarEntry[]>();
   for (const entry of calendarEntries) {
     const current = buckets.get(entry.week) ?? [];
     current.push(entry);
     buckets.set(entry.week, current);
   }
-  return Array.from(buckets.entries());
+  return Array.from(buckets.entries()).sort((left, right) => left[0] - right[0]);
 }
 
-export function PlanEditor({ initialData, storageMode }: PlanEditorProps) {
+function getCalendarStatus(entry: PlanCalendarEntry, reportDates: Set<string>, today: string) {
+  if (entry.date === today) {
+    return "today";
+  }
+  if (reportDates.has(entry.date)) {
+    return "done";
+  }
+  return "pending";
+}
+
+function getCalendarClass(status: "today" | "done" | "pending", isRest: boolean) {
+  if (status === "today") {
+    return "border-[#151811] bg-[#d5ff63] text-[#151811] shadow-[0_16px_28px_rgba(213,255,99,0.28)]";
+  }
+  if (status === "done") {
+    return "border-[#aac95a]/50 bg-[#eef6d2] text-[#151811]";
+  }
+  if (isRest) {
+    return "border-black/8 bg-[#ece8de] text-black/52";
+  }
+  return "border-black/10 bg-white text-[#151811]";
+}
+
+export function PlanEditor({ initialData, recentReports, today, storageMode }: PlanEditorProps) {
   const [form, setForm] = useState(initialData);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [needsRegeneration, setNeedsRegeneration] = useState(false);
+  const [selectedWeek, setSelectedWeek] = useState(initialData.plan.calendarEntries[0]?.week ?? 1);
   const [isPending, startTransition] = useTransition();
+
+  const reportDates = useMemo(() => new Set(recentReports.map((report) => report.date)), [recentReports]);
+  const groupedWeeks = useMemo(() => groupByWeek(form.plan.calendarEntries), [form.plan.calendarEntries]);
+  const visibleWeek = groupedWeeks.find(([week]) => week === selectedWeek) ?? groupedWeeks[0];
 
   function updateForm(mutator: (current: PlanSetupInput) => PlanSetupInput) {
     setForm((current) => mutator(current));
@@ -74,6 +104,7 @@ export function PlanEditor({ initialData, storageMode }: PlanEditorProps) {
                   restSeconds: 90,
                   cues: [],
                   oneRepMaxKg: undefined,
+                  usesBodyweight: false,
                   progressionModel: "percentage",
                   percentageOf1RM: 1,
                   incrementKg: 2.5,
@@ -87,13 +118,30 @@ export function PlanEditor({ initialData, storageMode }: PlanEditorProps) {
     }));
   }
 
+  function removeExercise(dayCode: DayCode, exerciseIndex: number) {
+    updateForm((current) => ({
+      ...current,
+      templates: current.templates.map((template) =>
+        template.dayCode === dayCode
+          ? {
+              ...template,
+              exercises: template.exercises.filter((_, currentExerciseIndex) => currentExerciseIndex !== exerciseIndex),
+            }
+          : template,
+      ),
+    }));
+  }
+
   function generatePlan() {
     const invalidExercise = form.templates
       .flatMap((template) => template.exercises.map((exercise) => ({ dayCode: template.dayCode, exercise })))
-      .find(({ exercise }) => !exercise.name.trim() || !exercise.oneRepMaxKg || exercise.oneRepMaxKg <= 0);
+      .find(
+        ({ exercise }) =>
+          !exercise.name.trim() || (!exercise.usesBodyweight && (!exercise.oneRepMaxKg || exercise.oneRepMaxKg <= 0)),
+      );
 
     if (invalidExercise) {
-      setFeedback(`请先补全 ${invalidExercise.dayCode} 日模板中的动作名称和 1RM。`);
+      setFeedback(`请先补全 ${invalidExercise.dayCode} 日模板中的动作名称和 1RM，或勾选自重。`);
       return;
     }
 
@@ -110,6 +158,7 @@ export function PlanEditor({ initialData, storageMode }: PlanEditorProps) {
     });
 
     setForm(generated);
+    setSelectedWeek(generated.plan.calendarEntries[0]?.week ?? 1);
     setNeedsRegeneration(false);
     setFeedback("线性计划已生成，顶部训练日历已更新。");
   }
@@ -143,14 +192,14 @@ export function PlanEditor({ initialData, storageMode }: PlanEditorProps) {
       <SectionCard
         eyebrow="Calendar"
         title="训练日历表"
-        description="计划先按日期展开，再由 Today 页按正式计划读取训练模板。"
+        description="按周查看正式计划。绿色代表已完成，亮色代表当日，浅色代表未完成。"
         actions={
           <div className="rounded-full bg-[#151811] px-4 py-2 text-xs uppercase tracking-[0.28em] text-white/72">
             {storageMode}
           </div>
         }
       >
-        <div className="grid gap-3 lg:grid-cols-3">
+        <div className="grid grid-cols-3 gap-3">
           {[
             { label: "Current", value: `${form.profile.currentWeightKg}kg` },
             { label: "Target", value: `${form.profile.targetWeightKg}kg` },
@@ -158,48 +207,64 @@ export function PlanEditor({ initialData, storageMode }: PlanEditorProps) {
           ].map((item) => (
             <div key={item.label} className="rounded-[22px] border border-black/10 bg-[#151811] px-4 py-4 text-white">
               <div className="text-[11px] uppercase tracking-[0.28em] text-white/42">{item.label}</div>
-              <div className="mt-2 text-2xl font-semibold">{item.value}</div>
+              <div className="mt-2 text-xl font-semibold sm:text-2xl">{item.value}</div>
             </div>
           ))}
         </div>
 
-        <div className="mt-5 space-y-4">
-          {groupByWeek(form.plan.calendarEntries).map(([week, entries]) => (
-            <article key={week} className="rounded-[24px] border border-black/10 bg-white/82 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Week {week}</div>
-                  <div className="mt-1 text-lg font-semibold text-[#151811]">W{week} 日历</div>
-                </div>
-                <div className="rounded-full bg-black/5 px-3 py-1.5 text-xs text-black/56">3练1休</div>
-              </div>
+        <div className="mt-5 rounded-[24px] border border-black/10 bg-white/82 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Week Selector</div>
+              <div className="mt-1 text-lg font-semibold text-[#151811]">选择查看 WEEK</div>
+            </div>
+            <label className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-[#f4f0e3] px-4 py-2 text-sm text-[#151811]">
+              <span>Week</span>
+              <select
+                value={visibleWeek?.[0] ?? selectedWeek}
+                onChange={(event) => setSelectedWeek(Number(event.target.value))}
+                className="bg-transparent font-semibold outline-none"
+              >
+                {groupedWeeks.map(([week]) => (
+                  <option key={week} value={week}>
+                    WEEK {week}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-                {entries.map((entry) => (
+          <div className="mt-4 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-[#eef6d2] px-3 py-1.5 text-[#151811]">已完成</span>
+            <span className="rounded-full bg-[#d5ff63] px-3 py-1.5 text-[#151811]">当日</span>
+            <span className="rounded-full bg-[#f4f0e3] px-3 py-1.5 text-[#151811]">未完成</span>
+          </div>
+
+          {visibleWeek ? (
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+              {visibleWeek[1].map((entry) => {
+                const status = getCalendarStatus(entry, reportDates, today);
+                return (
                   <div
                     key={entry.date}
-                    className={`rounded-[18px] border px-3 py-3 ${
-                      entry.slot === "rest"
-                        ? "border-black/8 bg-[#ece8de] text-black/52"
-                        : "border-[#cde96e]/40 bg-[#f4f9dc] text-[#151811]"
-                    }`}
+                    className={`rounded-[18px] border px-3 py-3 ${getCalendarClass(status, entry.slot === "rest")}`}
                   >
                     <div className="text-[11px] uppercase tracking-[0.2em]">{formatDateLabel(entry.date)}</div>
                     <div className="mt-2 text-sm font-semibold">{entry.label}</div>
                   </div>
-                ))}
-              </div>
-            </article>
-          ))}
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       </SectionCard>
 
       <SectionCard
         eyebrow="Control"
         title="长期计划总控台"
-        description="在这里输入当前体重、目标、起始强度和计划周期，然后重新生成整段线性计划。"
+        description="这里输入当前状态、目标和周期，然后重新生成整段线性计划。"
       >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-3">
           <label className="block rounded-[22px] bg-white/82 p-4">
             <span className="text-xs uppercase tracking-[0.24em] text-black/42">当前体重</span>
             <input
@@ -247,6 +312,9 @@ export function PlanEditor({ initialData, storageMode }: PlanEditorProps) {
               className="mt-2 w-full bg-transparent text-2xl font-semibold outline-none"
             />
           </label>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
           <label className="block rounded-[22px] bg-white/82 p-4">
             <span className="text-xs uppercase tracking-[0.24em] text-black/42">开始日期</span>
             <input
@@ -261,44 +329,27 @@ export function PlanEditor({ initialData, storageMode }: PlanEditorProps) {
               className="mt-2 w-full bg-transparent text-lg font-semibold outline-none"
             />
           </label>
-        </div>
-
-        <div className="mt-4 rounded-[24px] border border-black/10 bg-[#151811] p-4 text-white">
-          <div className="text-[11px] uppercase tracking-[0.28em] text-white/42">计划周期</div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {durationPresets.map((weeks) => (
-              <button
-                key={weeks}
-                type="button"
-                onClick={() =>
-                  updateForm((current) => ({
-                    ...current,
-                    plan: { ...current.plan, durationWeeks: weeks },
-                  }))
-                }
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                  form.plan.durationWeeks === weeks ? "bg-[#d5ff63] text-[#151811]" : "bg-white/8 text-white/74"
-                }`}
-              >
-                {weeks} 周
-              </button>
-            ))}
-            <label className="inline-flex items-center gap-2 rounded-full bg-white/8 px-4 py-2 text-sm text-white/74">
-              自定义
-              <input
-                type="number"
-                min="1"
-                max="52"
-                value={form.plan.durationWeeks}
-                onChange={(event) =>
-                  updateForm((current) => ({
-                    ...current,
-                    plan: { ...current.plan, durationWeeks: Number(event.target.value) },
-                  }))
-                }
-                className="w-16 bg-transparent text-right font-semibold text-white outline-none"
-              />
-            </label>
+          <div className="rounded-[22px] bg-[#151811] p-4 text-white md:col-span-2">
+            <div className="text-xs uppercase tracking-[0.24em] text-white/42">计划周期</div>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {durationPresets.map((weeks) => (
+                <button
+                  key={weeks}
+                  type="button"
+                  onClick={() =>
+                    updateForm((current) => ({
+                      ...current,
+                      plan: { ...current.plan, durationWeeks: weeks },
+                    }))
+                  }
+                  className={`rounded-[16px] px-4 py-3 text-sm font-semibold transition ${
+                    form.plan.durationWeeks === weeks ? "bg-[#d5ff63] text-[#151811]" : "bg-white/8 text-white/74"
+                  }`}
+                >
+                  {weeks} 周
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -325,7 +376,7 @@ export function PlanEditor({ initialData, storageMode }: PlanEditorProps) {
       <SectionCard
         eyebrow="Templates"
         title="A / B / C 模板"
-        description="这里只维护动作名称和最大重量(1RM)。组次、休息和推进规则由线性计划自动生成。"
+        description="可新增、删除动作。每个动作只维护名称和重量类型。"
       >
         <div className="grid gap-4">
           {form.templates.map((template) => (
@@ -346,37 +397,62 @@ export function PlanEditor({ initialData, storageMode }: PlanEditorProps) {
 
               <div className="mt-4 space-y-3">
                 {template.exercises.map((exercise, exerciseIndex) => (
-                  <div
-                    key={exercise.id}
-                    className="grid gap-3 rounded-[20px] border border-black/10 bg-[#faf7ef] p-4 md:grid-cols-[1.4fr_0.8fr]"
-                  >
-                    <label className="block">
-                      <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">动作名</span>
-                      <input
-                        value={exercise.name}
-                        onChange={(event) =>
-                          updateTemplateExercise(template.dayCode, exerciseIndex, { name: event.target.value })
-                        }
-                        className="mt-2 w-full rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm font-semibold outline-none"
-                        placeholder="输入动作名称"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">最大重量 1RM</span>
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        value={exercise.oneRepMaxKg ?? ""}
-                        onChange={(event) =>
-                          updateTemplateExercise(template.dayCode, exerciseIndex, {
-                            oneRepMaxKg: event.target.value ? Number(event.target.value) : undefined,
-                          })
-                        }
-                        className="mt-2 w-full rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm font-semibold outline-none"
-                        placeholder="kg"
-                      />
-                    </label>
+                  <div key={exercise.id} className="rounded-[20px] border border-black/10 bg-[#faf7ef] p-4">
+                    <div className="grid gap-3 md:grid-cols-[1.25fr_0.95fr_auto]">
+                      <label className="block">
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">动作名</span>
+                        <input
+                          value={exercise.name}
+                          onChange={(event) =>
+                            updateTemplateExercise(template.dayCode, exerciseIndex, { name: event.target.value })
+                          }
+                          className="mt-2 w-full rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm font-semibold outline-none"
+                          placeholder="输入动作名称"
+                        />
+                      </label>
+
+                      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                        <label className="block">
+                          <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">最大重量 / 自重</span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={exercise.usesBodyweight ? "" : (exercise.oneRepMaxKg ?? "")}
+                            onChange={(event) =>
+                              updateTemplateExercise(template.dayCode, exerciseIndex, {
+                                oneRepMaxKg: event.target.value ? Number(event.target.value) : undefined,
+                              })
+                            }
+                            disabled={exercise.usesBodyweight}
+                            className="mt-2 w-full rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm font-semibold outline-none disabled:opacity-40"
+                            placeholder="kg"
+                          />
+                        </label>
+                        <label className="mt-7 inline-flex items-center justify-center gap-2 rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm font-medium text-[#151811]">
+                          <input
+                            type="checkbox"
+                            checked={exercise.usesBodyweight ?? false}
+                            onChange={(event) =>
+                              updateTemplateExercise(template.dayCode, exerciseIndex, {
+                                usesBodyweight: event.target.checked,
+                                oneRepMaxKg: event.target.checked ? undefined : exercise.oneRepMaxKg,
+                              })
+                            }
+                            className="h-4 w-4 accent-[#151811]"
+                          />
+                          自重
+                        </label>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => removeExercise(template.dayCode, exerciseIndex)}
+                        className="rounded-[16px] border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-[#151811] transition hover:bg-black/5"
+                      >
+                        删除
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

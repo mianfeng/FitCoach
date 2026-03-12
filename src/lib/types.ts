@@ -101,6 +101,7 @@ export interface ExerciseTemplate {
   cues: string[];
   baseWeightKg?: number;
   oneRepMaxKg?: number;
+  usesBodyweight?: boolean;
   oneRepMaxRef?: string;
   progressionModel: "percentage" | "fixed";
   percentageOf1RM?: number;

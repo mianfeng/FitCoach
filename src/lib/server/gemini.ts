@@ -5,7 +5,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { env } from "@/lib/server/env";
 import { describeMealExecution, describeTrainingReadiness } from "@/lib/server/domain";
 import { normalizeMealLog, resolvePostWorkoutEntry, summarizeMealAdherence } from "@/lib/session-report";
-import type { ChatContextBundle, MealPrescription, SessionReport, KnowledgeBasis } from "@/lib/types";
+import type { ChatContextBundle, KnowledgeBasis, MealPrescription, SessionReport } from "@/lib/types";
 
 function stripCodeFence(input: string) {
   return input.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
@@ -32,27 +32,49 @@ export async function generateGeminiCoachReply(params: {
 
   const client = new GoogleGenerativeAI(env.geminiApiKey);
   const model = client.getGenerativeModel({ model: env.geminiModel });
+  const knowledgeLines = params.context.retrievedKnowledge.length
+    ? params.context.retrievedKnowledge.map((chunk) => `- ${chunk.title}: ${chunk.content}`)
+    : ["- none"];
+  const recentMessageLines = params.context.recentMessages.length
+    ? params.context.recentMessages.map((message) => `- ${message.role}: ${message.content}`)
+    : ["- none"];
+  const basisLines = params.basis.length
+    ? params.basis.map((item) => `- [${item.type}] ${item.label}: ${item.excerpt}`)
+    : ["- none"];
 
   const prompt = [
-    "你是 FitCoach 的唯一教练。回答必须简洁、执行导向、避免幻觉。",
-    "回答时区分三类依据：资料原文、历史记录、模型推断。",
-    "不要改写正式长期计划，只能给建议。",
+    "You are FitCoach.",
+    "Reply in Simplified Chinese.",
+    "Sound like a knowledgeable training friend: grounded, experienced, candid, and easy to talk to.",
+    "Do not sound like customer support, a rigid template, or a motivational slogan generator.",
+    "You can go deep on training theory, recovery logic, nutrition logic, tradeoffs, and likely mechanisms when that helps the user think clearly.",
+    "Use handbook-derived knowledge when it is relevant, but do not depend on it mechanically and do not pretend it is the only authority.",
+    "If evidence is thin, say so plainly. Avoid hallucinations.",
+    "Do not rewrite the user's formal long-term plan on your own. Give advice, options, cautions, and reasoning.",
+    "Do not force numbered sections unless structure genuinely helps. Natural prose is preferred.",
+    "Weave evidence naturally: mention when something comes from retrieved knowledge, recent history, or your own inference, but do not mechanically print a fixed template every time.",
     "",
-    `角色设定：${params.context.persona.name}，风格：${params.context.persona.voice}，使命：${params.context.persona.mission}`,
-    `当前目标：${params.context.activeGoal}`,
-    `计划摘要：${params.context.activePlanSummary}`,
-    `近期执行摘要：${params.context.recentReportSummary}`,
-    "检索资料：",
-    ...params.context.retrievedKnowledge.map((chunk) => `- ${chunk.title}: ${chunk.content}`),
-    "最近消息：",
-    ...params.context.recentMessages.map((message) => `- ${message.role}: ${message.content}`),
+    `Persona name: ${params.context.persona.name}`,
+    `Persona voice: ${params.context.persona.voice}`,
+    `Persona mission: ${params.context.persona.mission}`,
+    `Current goal: ${params.context.activeGoal}`,
+    `Plan summary: ${params.context.activePlanSummary}`,
+    `Recent execution summary: ${params.context.recentReportSummary}`,
+    "Relevant knowledge:",
+    ...knowledgeLines,
+    "Recent conversation:",
+    ...recentMessageLines,
+    "Explicit basis:",
+    ...basisLines,
     "",
-    `用户问题：${params.message}`,
+    `User question: ${params.message}`,
     "",
-    "输出要求：",
-    "1. 先给直接答案。",
-    "2. 再用三行列出：资料依据 / 历史依据 / 模型推断。",
-    "3. 如果问题其实应该走“今日处方生成”，明确提醒去首页生成。",
+    "Answer requirements:",
+    "- Start with the direct answer or recommendation.",
+    "- Then explain the reasoning in natural language.",
+    "- If useful, unpack the training theory instead of stopping at a short conclusion.",
+    "- Keep the tone human and informed, not ceremonial.",
+    "- If the question should really be answered by generating today's prescription, say that explicitly.",
   ].join("\n");
 
   const result = await model.generateContent(prompt);
@@ -77,28 +99,30 @@ export async function generateGeminiDailyReview(params: {
   const mealSummary = summarizeMealAdherence(mealLog);
 
   const prompt = [
-    "你是 FitCoach 的饮食与训练复盘教练。",
-    "你的任务不是重新生成结构，而是润色已有点评文案。",
-    "你必须严格保留四个编号标题、每个标题下的项目数和整体 Markdown 结构，不允许添加额外段落，也不允许添加代码块。",
-    "不能修改训练准备度结论，只能润色措辞，让它更像资深教练的次日决策建议。",
+    "You are FitCoach's daily review editor.",
+    "Reply in Simplified Chinese.",
+    "Your job is not to invent a new structure. You must polish the existing draft review only.",
+    "You must preserve the four numbered headings exactly: 1. 数据摘要 / 2. 训练评估 / 3. 饮食执行 / 4. 次日决策.",
+    "Keep the markdown structure stable. Do not add extra sections and do not add code fences.",
+    "Do not change the final training-readiness conclusion. Only improve phrasing so it sounds like an experienced coach.",
     "",
-    `当天标签：${params.planLabel}`,
-    `当天计划：${params.workoutTitle}`,
-    `目标宏量：热量约 ${params.targetMacros.proteinG * 4 + params.targetMacros.carbsG * 4 + params.targetMacros.fatsG * 9} kcal / 蛋白质 ${params.targetMacros.proteinG} g / 碳水 ${params.targetMacros.carbsG} g / 脂肪 ${params.targetMacros.fatsG} g`,
-    `餐次执行：${mealLog ? describeMealExecution(params.report) : "未填写"}`,
-    `餐次统计：按计划 ${mealSummary.onPlan} / 调整 ${mealSummary.adjusted} / 缺失 ${mealSummary.missed}`,
-    `早餐：${mealLog?.breakfast.content || "未填写"}`,
-    `午餐：${mealLog?.lunch.content || "未填写"}`,
-    `晚餐：${mealLog?.dinner.content || "未填写"}`,
-    `练前餐：${mealLog?.preWorkout.content || "未填写"}`,
-    `练后餐：${effectivePostWorkout?.content || "未填写"}`,
-    `训练与状态文字汇报：${params.report.trainingReportText || "未填写"}`,
-    `体重：${params.report.bodyWeightKg} kg`,
-    `睡眠：${params.report.sleepHours} h`,
-    `疲劳：${params.report.fatigue}/10`,
-    `次日训练准备度：${params.report.nextDayDecision ? describeTrainingReadiness(params.report.nextDayDecision.trainingReadiness) : "未生成"}`,
+    `Plan label: ${params.planLabel}`,
+    `Workout title: ${params.workoutTitle}`,
+    `Target macros: about ${params.targetMacros.proteinG * 4 + params.targetMacros.carbsG * 4 + params.targetMacros.fatsG * 9} kcal / protein ${params.targetMacros.proteinG} g / carbs ${params.targetMacros.carbsG} g / fats ${params.targetMacros.fatsG} g`,
+    `Meal execution: ${mealLog ? describeMealExecution(params.report) : "未填写"}`,
+    `Meal summary: on plan ${mealSummary.onPlan} / adjusted ${mealSummary.adjusted} / missed ${mealSummary.missed}`,
+    `Breakfast: ${mealLog?.breakfast.content || "未填写"}`,
+    `Lunch: ${mealLog?.lunch.content || "未填写"}`,
+    `Dinner: ${mealLog?.dinner.content || "未填写"}`,
+    `Pre-workout meal: ${mealLog?.preWorkout.content || "未填写"}`,
+    `Post-workout meal: ${effectivePostWorkout?.content || "未填写"}`,
+    `Training notes: ${params.report.trainingReportText || "未填写"}`,
+    `Body weight: ${params.report.bodyWeightKg} kg`,
+    `Sleep: ${params.report.sleepHours} h`,
+    `Fatigue: ${params.report.fatigue}/10`,
+    `Next-day readiness: ${params.report.nextDayDecision ? describeTrainingReadiness(params.report.nextDayDecision.trainingReadiness) : "未生成"}`,
     "",
-    "请基于下面这份规则版点评直接润色：",
+    "Polish this draft review directly:",
     params.draftReview,
   ].join("\n");
 

@@ -723,6 +723,28 @@ export function buildFallbackCoachAnswer(
   ].join("\n\n");
 }
 
+export function buildNaturalFallbackCoachAnswer(
+  message: string,
+  context: ChatContextBundle,
+  basis: KnowledgeBasis[],
+) {
+  const topic = context.retrievedKnowledge[0];
+  const basisLabels = basis.map((item) => item.label).join(" / ");
+  const opening = topic
+    ? `先说结论：和你这个问题最相关的参考是《${topic.title}》，先抓住它的核心意思就够了，${topic.content.slice(0, 100)}...`
+    : "先说结论：当前没有命中特别直接的资料片段，我会先按你的目标、近期执行和训练逻辑给你一个相对稳妥的判断。";
+
+  return [
+    opening,
+    `你这次问的是：${message}`,
+    `我先看的背景是你的当前目标“${context.activeGoal}”和执行情况“${context.activePlanSummary}”。真正落地时，我不会只照着手册复述，而是更看重恢复、训练刺激、饮食执行和最近几天的主观反馈能不能对上。`,
+    basis.length
+      ? `这次回答主要参考了：${basisLabels}。如果证据不够硬，我会把它当成推断，不会包装成绝对结论。`
+      : "这次回答主要基于你当前计划和最近记录做推断，不把它当成绝对结论。",
+    "如果你想继续往下拆，我更建议你直接追问动作替换、容量安排、疲劳管理或者饮食策略，我可以顺着训练逻辑把理由讲透。",
+  ].join("\n\n");
+}
+
 export function buildKnowledgeBasisFromChunks(chunks: KnowledgeChunk[]) {
   return chunks.slice(0, 3).map(
     (chunk) =>

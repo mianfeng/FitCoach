@@ -917,8 +917,8 @@ export function HomeDashboard({
         title="教练问答"
         description="理论问题和今日点评都集中在这里。提交今日汇报后，回答区会自动刷新成当天点评。"
       >
-        <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-[26px] bg-[#151811] p-5 text-white shadow-[0_24px_60px_rgba(18,22,16,0.22)]">
+        <div className="space-y-4">
+          <div className="hidden rounded-[26px] bg-[#151811] p-5 text-white shadow-[0_24px_60px_rgba(18,22,16,0.22)]">
             <div className="text-[11px] uppercase tracking-[0.28em] text-white/42">Context</div>
             <div className="mt-3 rounded-[20px] border border-white/10 bg-white/6 px-4 py-4">
               <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">当前计划摘要</div>
@@ -952,6 +952,10 @@ export function HomeDashboard({
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Answer</div>
                   <h3 className="mt-1 text-lg font-semibold text-[#151811]">{coachReply.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-black/52">
+                    Ask for training theory, recovery logic, substitutions, meal strategy, or how to read your recent
+                    trend.
+                  </p>
                 </div>
                 <div className="rounded-full bg-[#151811] px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] text-white/74">
                   {coachReply.source === "review"

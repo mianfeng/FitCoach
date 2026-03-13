@@ -7,6 +7,8 @@ export type ReportAdherence = 1 | 2 | 3 | 4 | 5;
 export type SchedulePattern = "3on1off";
 export type PlanCalendarSlot = DayCode | "rest";
 export type PostWorkoutSource = "dedicated" | "lunch" | "dinner";
+export type MealAdherenceStatus = "on_plan" | "adjusted" | "missed";
+export type TrainingReadiness = "push" | "hold" | "deload";
 
 export interface CoachPersona {
   id: string;
@@ -206,16 +208,30 @@ export interface ExerciseResult {
 }
 
 export interface MealLog {
-  breakfast: string;
-  lunch: string;
-  dinner: string;
-  preWorkout: string;
-  postWorkout: string;
+  breakfast: MealLogEntry;
+  lunch: MealLogEntry;
+  dinner: MealLogEntry;
+  preWorkout: MealLogEntry;
+  postWorkout: MealLogEntry;
   postWorkoutSource: PostWorkoutSource;
+}
+
+export interface MealLogEntry {
+  content: string;
+  adherence: MealAdherenceStatus;
+  deviationNote?: string;
+}
+
+export interface NextDayDecision {
+  trainingReadiness: TrainingReadiness;
+  nutritionFocus: string;
+  recoveryFocus: string;
+  priorityNotes: string[];
 }
 
 export interface SessionReport {
   id: string;
+  reportVersion: 1 | 2;
   date: string;
   performedDay: PlanCalendarSlot;
   exerciseResults?: ExerciseResult[];
@@ -230,6 +246,7 @@ export interface SessionReport {
   recoveryNote?: string;
   completed: boolean;
   summary?: string;
+  nextDayDecision?: NextDayDecision;
   createdAt: string;
 }
 

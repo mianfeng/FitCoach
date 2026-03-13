@@ -19,6 +19,15 @@ create table if not exists session_reports (
   created_at timestamptz not null default timezone('utc', now())
 );
 
+alter table if exists session_reports add column if not exists report_version integer;
+alter table if exists session_reports add column if not exists report_date text;
+alter table if exists session_reports add column if not exists performed_day text;
+alter table if exists session_reports add column if not exists body_weight_kg numeric;
+alter table if exists session_reports add column if not exists sleep_hours numeric;
+alter table if exists session_reports add column if not exists fatigue integer;
+alter table if exists session_reports add column if not exists completed boolean;
+alter table if exists session_reports add column if not exists training_readiness text;
+
 create table if not exists plan_adjustments (
   id text primary key,
   proposal jsonb not null,
@@ -43,6 +52,33 @@ create table if not exists chat_messages (
   created_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists session_report_exercises (
+  id text primary key,
+  report_id text not null references session_reports(id) on delete cascade,
+  sort_order integer not null,
+  exercise_name text not null,
+  performed boolean not null default true,
+  target_sets integer not null,
+  target_reps text not null,
+  actual_sets integer not null,
+  actual_reps text not null,
+  top_set_weight_kg numeric,
+  rpe numeric not null,
+  dropped_sets boolean not null default false,
+  notes text
+);
+
+create table if not exists session_report_meals (
+  id text primary key,
+  report_id text not null references session_reports(id) on delete cascade,
+  sort_order integer not null,
+  slot text not null,
+  content text not null default '',
+  adherence text not null,
+  deviation_note text,
+  post_workout_source text
+);
+
 create table if not exists knowledge_docs (
   id text primary key,
   title text not null,
@@ -62,9 +98,12 @@ create table if not exists knowledge_chunks (
 
 create index if not exists idx_daily_briefs_created_at on daily_briefs (created_at desc);
 create index if not exists idx_session_reports_created_at on session_reports (created_at desc);
+create index if not exists idx_session_reports_report_date on session_reports (report_date desc);
 create index if not exists idx_plan_adjustments_created_at on plan_adjustments (created_at desc);
 create index if not exists idx_memory_summaries_created_at on memory_summaries (created_at desc);
 create index if not exists idx_plan_snapshots_created_at on plan_snapshots (created_at desc);
 create index if not exists idx_chat_messages_created_at on chat_messages (created_at desc);
+create index if not exists idx_session_report_exercises_report_id on session_report_exercises (report_id, sort_order);
+create index if not exists idx_session_report_meals_report_id on session_report_meals (report_id, sort_order);
 create index if not exists idx_plan_snapshots_date on plan_snapshots ((snapshot->>'date'));
 create index if not exists idx_knowledge_chunks_title on knowledge_chunks using gin (to_tsvector('simple', title || ' ' || content));

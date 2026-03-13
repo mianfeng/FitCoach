@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 
 import { SectionCard } from "@/components/section-card";
+import { isStructuredSessionReport, mealAdherenceLabels, mealSlotLabels, normalizeMealLog, resolvePostWorkoutEntry } from "@/lib/session-report";
 import type { DashboardSnapshot, SessionReport } from "@/lib/types";
 
 interface HistoryViewProps {
@@ -10,27 +11,112 @@ interface HistoryViewProps {
 }
 
 function summarizeMealLog(report: SessionReport) {
-  if (!report.mealLog) {
+  const mealLog = normalizeMealLog(report.mealLog);
+  if (!mealLog) {
     return [];
   }
 
   const postWorkoutLine =
-    report.mealLog.postWorkoutSource === "lunch"
-      ? `练后餐：午餐 (${report.mealLog.lunch || "未填写"})`
-      : report.mealLog.postWorkoutSource === "dinner"
-        ? `练后餐：晚餐 (${report.mealLog.dinner || "未填写"})`
-        : `练后餐：${report.mealLog.postWorkout || "未填写"}`;
+    mealLog.postWorkoutSource === "lunch"
+      ? `练后餐：午餐 (${mealLog.lunch.content || "未填写"})`
+      : mealLog.postWorkoutSource === "dinner"
+        ? `练后餐：晚餐 (${mealLog.dinner.content || "未填写"})`
+        : `练后餐：${resolvePostWorkoutEntry(mealLog).content || "未填写"}`;
 
   return [
-    `早餐：${report.mealLog.breakfast || "未填写"}`,
-    `午餐：${report.mealLog.lunch || "未填写"}`,
-    `晚餐：${report.mealLog.dinner || "未填写"}`,
-    `练前餐：${report.mealLog.preWorkout || "未填写"}`,
+    `早餐：${mealLog.breakfast.content || "未填写"}`,
+    `午餐：${mealLog.lunch.content || "未填写"}`,
+    `晚餐：${mealLog.dinner.content || "未填写"}`,
+    `练前餐：${mealLog.preWorkout.content || "未填写"}`,
     postWorkoutLine,
   ];
 }
 
+function renderStructuredReportBody(report: SessionReport) {
+  const mealLog = normalizeMealLog(report.mealLog);
+
+  return (
+    <div className="mt-3 space-y-3">
+      <p className="text-sm text-black/62">
+        体重 {report.bodyWeightKg}kg / 睡眠 {report.sleepHours}h / 疲劳 {report.fatigue}/10
+      </p>
+
+      {report.exerciseResults?.length ? (
+        <div className="rounded-[18px] border border-black/8 bg-[#faf7ef] px-4 py-3">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">动作执行</div>
+          <div className="mt-3 space-y-2">
+            {report.exerciseResults.map((exercise) => (
+              <div
+                key={`${report.id}-${exercise.exerciseName}`}
+                className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-black/8 pb-2 last:border-b-0 last:pb-0"
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-[#151811]">{exercise.exerciseName}</div>
+                  <div className="text-xs text-black/52">
+                    {exercise.performed === false ? "未执行" : `实际 ${exercise.actualSets} x ${exercise.actualReps}`}
+                  </div>
+                  {exercise.notes ? <div className="mt-1 text-xs text-black/48">{exercise.notes}</div> : null}
+                </div>
+                <div className="text-right text-xs text-black/58">
+                  <div>{exercise.topSetWeightKg ? `${exercise.topSetWeightKg}kg` : "自重 / 空白"}</div>
+                  <div>RPE {exercise.rpe}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {mealLog ? (
+        <div className="rounded-[18px] border border-black/8 bg-[#faf7ef] px-4 py-3">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">餐次执行</div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {(["breakfast", "lunch", "dinner", "preWorkout", "postWorkout"] as const).map((slot) => {
+              const entry = slot === "postWorkout" ? resolvePostWorkoutEntry(mealLog) : mealLog[slot];
+              return (
+                <div key={slot} className="rounded-[14px] border border-black/10 bg-white px-3 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-[#151811]">{mealSlotLabels[slot]}</span>
+                    <span className="rounded-full bg-[#f1ebd9] px-2 py-1 text-[10px] text-black/58">
+                      {mealAdherenceLabels[entry.adherence]}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-black/62">{entry.content || "未填写"}</div>
+                  {entry.deviationNote ? <div className="mt-1 text-xs text-black/48">{entry.deviationNote}</div> : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {report.nextDayDecision ? (
+        <div className="rounded-[18px] border border-[#cddfa0] bg-[#f4f9e6] px-4 py-3">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Next-Day Decision</div>
+          <div className="mt-2 space-y-1 text-sm leading-6 text-[#151811]">
+            <div>训练准备度：{report.nextDayDecision.trainingReadiness}</div>
+            <div>饮食重点：{report.nextDayDecision.nutritionFocus}</div>
+            <div>恢复重点：{report.nextDayDecision.recoveryFocus}</div>
+            <div>优先事项：{report.nextDayDecision.priorityNotes.join(" / ")}</div>
+          </div>
+        </div>
+      ) : null}
+
+      {report.dailyReviewMarkdown ? (
+        <div className="rounded-[18px] border border-[#cddfa0] bg-[#f4f9e6] px-4 py-3">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Daily Review</div>
+          <pre className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#151811]">{report.dailyReviewMarkdown}</pre>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function renderReportBody(report: SessionReport) {
+  if (isStructuredSessionReport(report)) {
+    return renderStructuredReportBody(report);
+  }
+
   if (report.mealLog || report.trainingReportText || report.dailyReviewMarkdown) {
     const mealLines = summarizeMealLog(report);
 

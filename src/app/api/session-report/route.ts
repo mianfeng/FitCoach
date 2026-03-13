@@ -3,10 +3,12 @@ import { NextResponse } from "next/server";
 
 import {
   buildDailyBriefFromSnapshot,
+  buildNextDayDecision,
   buildDailyReviewMarkdown,
   buildTodayAutofillBrief,
 } from "@/lib/server/domain";
 import { generateGeminiDailyReview } from "@/lib/server/gemini";
+import { deriveDietAdherence, normalizeMealLog } from "@/lib/session-report";
 import { getRepository } from "@/lib/server/repository";
 import { uid } from "@/lib/utils";
 import { sessionReportSchema } from "@/lib/validations";
@@ -17,6 +19,16 @@ export async function POST(request: Request) {
     const parsed = sessionReportSchema.parse(payload);
     const repository = await getRepository();
     const snapshot = await repository.getDashboardSnapshot();
+    const mealLog = normalizeMealLog(parsed.mealLog);
+    const normalizedReport = {
+      ...parsed,
+      reportVersion: 2 as const,
+      mealLog,
+      trainingReportText: parsed.trainingReportText ?? "",
+      dietAdherence: parsed.dietAdherence ?? deriveDietAdherence(mealLog),
+      painNotes: parsed.painNotes?.trim() || undefined,
+      recoveryNote: parsed.recoveryNote?.trim() || undefined,
+    };
     const planSnapshot = await repository.findPlanSnapshotByDate(parsed.date);
     const reviewBrief =
       planSnapshot
@@ -28,33 +40,40 @@ export async function POST(request: Request) {
             snapshot.templates,
             snapshot.recentReports,
           );
+    const previewReport = {
+      id: "preview",
+      createdAt: new Date().toISOString(),
+      summary: "",
+      ...normalizedReport,
+    };
+    const nextDayDecision = buildNextDayDecision(previewReport, snapshot.plan);
+    const fallbackReview = buildDailyReviewMarkdown({
+      report: {
+        ...previewReport,
+        nextDayDecision,
+      },
+      targetMacros: reviewBrief.mealPrescription.macros,
+      nextDayDecision,
+    });
     const review =
       (await generateGeminiDailyReview({
         report: {
-          id: "preview",
-          createdAt: new Date().toISOString(),
-          summary: "",
-          ...parsed,
+          ...previewReport,
+          nextDayDecision,
         },
         targetMacros: reviewBrief.mealPrescription.macros,
         planLabel: reviewBrief.calendarLabel,
         workoutTitle: reviewBrief.workoutPrescription.title,
+        draftReview: fallbackReview,
       })) ??
-      buildDailyReviewMarkdown({
-        report: {
-          id: "preview",
-          createdAt: new Date().toISOString(),
-          summary: "",
-          ...parsed,
-        },
-        targetMacros: reviewBrief.mealPrescription.macros,
-      });
+      fallbackReview;
     const report = {
       id: uid("report"),
       createdAt: new Date().toISOString(),
       summary: "",
       dailyReviewMarkdown: review,
-      ...parsed,
+      nextDayDecision,
+      ...normalizedReport,
     };
     const saved = await repository.saveSessionReport(report);
     const proposals = await repository.listPlanAdjustments(3);

@@ -4,6 +4,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { buildEmptyDashboardSeed, buildDefaultPlanSetup } from "@/lib/seed";
 import { buildPlanSnapshots, normalizePlanSetupInput } from "@/lib/plan-generator";
+import { buildMealLogForSubmit, createEmptyMealLog, mealSlotOrder, normalizeStoredSessionReport } from "@/lib/session-report";
 import { buildSessionSummary } from "@/lib/server/domain";
 import { env, hasSupabaseConfig } from "@/lib/server/env";
 import { loadLocalKnowledgeBundle, parseKnowledgeMarkdown, searchKnowledgeChunks } from "@/lib/server/knowledge";
@@ -20,6 +21,7 @@ import type {
   SessionReport,
   WorkoutTemplate,
 } from "@/lib/types";
+import { uid } from "@/lib/utils";
 
 type CoachStateRow = {
   id: string;
@@ -39,7 +41,42 @@ type BriefRow = {
 type ReportRow = {
   id: string;
   report: SessionReport;
+  report_version?: number | null;
+  report_date?: string | null;
+  performed_day?: string | null;
+  body_weight_kg?: number | null;
+  sleep_hours?: number | null;
+  fatigue?: number | null;
+  completed?: boolean | null;
+  training_readiness?: string | null;
   created_at?: string;
+};
+
+type ReportExerciseRow = {
+  id: string;
+  report_id: string;
+  sort_order: number;
+  exercise_name: string;
+  performed: boolean;
+  target_sets: number;
+  target_reps: string;
+  actual_sets: number;
+  actual_reps: string;
+  top_set_weight_kg?: number | null;
+  rpe: number;
+  dropped_sets: boolean;
+  notes?: string | null;
+};
+
+type ReportMealRow = {
+  id: string;
+  report_id: string;
+  sort_order: number;
+  slot: string;
+  content: string;
+  adherence: "on_plan" | "adjusted" | "missed";
+  deviation_note?: string | null;
+  post_workout_source?: "dedicated" | "lunch" | "dinner" | null;
 };
 
 type ProposalRow = {
@@ -139,6 +176,148 @@ function dedupeByDate<T extends { date: string; createdAt?: string }>(items: T[]
   return result;
 }
 
+function normalizeReportRow(row: ReportRow) {
+  return normalizeStoredSessionReport({
+    ...row.report,
+    reportVersion: (row.report.reportVersion ?? row.report_version ?? undefined) as 1 | 2 | undefined,
+    date: row.report.date ?? row.report_date ?? "",
+    performedDay: row.report.performedDay ?? ((row.performed_day ?? "rest") as SessionReport["performedDay"]),
+    bodyWeightKg: row.report.bodyWeightKg ?? Number(row.body_weight_kg ?? 0),
+    sleepHours: row.report.sleepHours ?? Number(row.sleep_hours ?? 0),
+    fatigue: row.report.fatigue ?? Number(row.fatigue ?? 0),
+    completed: row.report.completed ?? row.completed ?? true,
+    createdAt: row.report.createdAt ?? row.created_at ?? new Date().toISOString(),
+  });
+}
+
+function buildExerciseResultsFromRows(rows: ReportExerciseRow[] | undefined) {
+  return rows
+    ?.sort((left, right) => left.sort_order - right.sort_order)
+    .map((row) => ({
+      exerciseName: row.exercise_name,
+      performed: row.performed,
+      targetSets: row.target_sets,
+      targetReps: row.target_reps,
+      actualSets: row.actual_sets,
+      actualReps: row.actual_reps,
+      topSetWeightKg: row.top_set_weight_kg ?? undefined,
+      rpe: row.rpe,
+      droppedSets: row.dropped_sets,
+      notes: row.notes ?? undefined,
+    }));
+}
+
+function buildMealLogFromRows(rows: ReportMealRow[] | undefined) {
+  if (!rows?.length) {
+    return undefined;
+  }
+
+  const mealLog = createEmptyMealLog();
+  for (const row of rows.sort((left, right) => left.sort_order - right.sort_order)) {
+    if (!mealSlotOrder.includes(row.slot as (typeof mealSlotOrder)[number])) {
+      continue;
+    }
+
+    const slot = row.slot as (typeof mealSlotOrder)[number];
+    mealLog[slot] = {
+      content: row.content ?? "",
+      adherence: row.adherence ?? "adjusted",
+      deviationNote: row.deviation_note ?? "",
+    };
+    if (row.post_workout_source) {
+      mealLog.postWorkoutSource = row.post_workout_source;
+    }
+  }
+
+  return mealLog;
+}
+
+function groupByReportId<T extends { report_id: string }>(items: T[] | null | undefined) {
+  const grouped = new Map<string, T[]>();
+  for (const item of items ?? []) {
+    const current = grouped.get(item.report_id) ?? [];
+    current.push(item);
+    grouped.set(item.report_id, current);
+  }
+  return grouped;
+}
+
+function toExerciseRows(report: SessionReport): ReportExerciseRow[] {
+  return (report.exerciseResults ?? []).map((exercise, index) => ({
+    id: uid("report-exercise"),
+    report_id: report.id,
+    sort_order: index,
+    exercise_name: exercise.exerciseName,
+    performed: exercise.performed ?? true,
+    target_sets: exercise.targetSets,
+    target_reps: exercise.targetReps,
+    actual_sets: exercise.actualSets,
+    actual_reps: exercise.actualReps,
+    top_set_weight_kg: exercise.topSetWeightKg ?? null,
+    rpe: exercise.rpe,
+    dropped_sets: exercise.droppedSets,
+    notes: exercise.notes ?? null,
+  }));
+}
+
+function toMealRows(report: SessionReport): ReportMealRow[] {
+  if (!report.mealLog) {
+    return [];
+  }
+
+  const mealLog = buildMealLogForSubmit(report.mealLog);
+  return mealSlotOrder.map((slot, index) => ({
+    id: uid("report-meal"),
+    report_id: report.id,
+    sort_order: index,
+    slot,
+    content: mealLog[slot].content,
+    adherence: mealLog[slot].adherence,
+    deviation_note: mealLog[slot].deviationNote ?? null,
+    post_workout_source: slot === "postWorkout" ? mealLog.postWorkoutSource : null,
+  }));
+}
+
+async function hydrateReportRows(supabase: SupabaseClient, rows: ReportRow[] | null | undefined) {
+  const baseRows = rows ?? [];
+  if (!baseRows.length) {
+    return [] as SessionReport[];
+  }
+
+  try {
+    const reportIds = baseRows.map((row) => row.id);
+    const [{ data: exerciseRows }, { data: mealRows }] = await Promise.all([
+      supabase
+        .from("session_report_exercises")
+        .select("*")
+        .in("report_id", reportIds)
+        .returns<ReportExerciseRow[]>(),
+      supabase
+        .from("session_report_meals")
+        .select("*")
+        .in("report_id", reportIds)
+        .returns<ReportMealRow[]>(),
+    ]);
+
+    const exercisesByReportId = groupByReportId(exerciseRows);
+    const mealsByReportId = groupByReportId(mealRows);
+
+    return baseRows.map((row) => {
+      const fallback = normalizeReportRow(row);
+      const exerciseResults = buildExerciseResultsFromRows(exercisesByReportId.get(row.id));
+      const mealLog = buildMealLogFromRows(mealsByReportId.get(row.id));
+
+      return normalizeStoredSessionReport({
+        ...fallback,
+        exerciseResults: exerciseResults?.length ? exerciseResults : fallback.exerciseResults,
+        mealLog: mealLog ?? fallback.mealLog,
+      });
+    });
+  } catch {
+    return baseRows.map((row) => normalizeReportRow(row));
+  }
+}
+
 function createMockRepository(): Repository {
   return {
     async getDashboardSnapshot() {
@@ -162,7 +341,7 @@ function createMockRepository(): Repository {
         plan: normalized.plan,
         templates: normalized.templates,
         recentBrief: store.recentBrief,
-        recentReports: dedupeByDate(store.recentReports).slice(0, 6),
+        recentReports: dedupeByDate(store.recentReports.map((report) => normalizeStoredSessionReport(report))).slice(0, 6),
         proposals: store.proposals.slice(0, 6),
         summaries: dedupeByDate(store.summaries).slice(0, 6),
         chatMessages: store.chatMessages.slice(-8),
@@ -223,18 +402,24 @@ function createMockRepository(): Repository {
     },
     async listSessionReports(limit = 20) {
       const store = await getMockStore();
-      return dedupeByDate(store.recentReports).slice(0, limit);
+      return dedupeByDate(store.recentReports.map((report) => normalizeStoredSessionReport(report))).slice(0, limit);
     },
     async saveSessionReport(report) {
       const store = await getMockStore();
-      const priorReports = store.recentReports.filter((item) => item.date !== report.date);
-      const { memorySummary, proposals } = buildSessionSummary(report, priorReports, store.plan);
-      store.recentReports = [report, ...priorReports].slice(0, 30);
+      const normalizedReport = normalizeStoredSessionReport({
+        ...report,
+        mealLog: report.mealLog ? buildMealLogForSubmit(report.mealLog) : undefined,
+      });
+      const priorReports = store.recentReports
+        .map((item) => normalizeStoredSessionReport(item))
+        .filter((item) => item.date !== normalizedReport.date);
+      const { memorySummary, proposals } = buildSessionSummary(normalizedReport, priorReports, store.plan);
+      store.recentReports = [normalizedReport, ...priorReports].slice(0, 30);
       store.summaries = [memorySummary, ...store.summaries.filter((item) => item.date !== memorySummary.date)].slice(0, 30);
       if (proposals.length) {
         store.proposals = [...proposals, ...store.proposals].slice(0, 20);
       }
-      return report;
+      return normalizedReport;
     },
     async listPlanAdjustments(limit = 20) {
       const store = await getMockStore();
@@ -396,7 +581,8 @@ function createSupabaseRepository(): Repository {
           supabase.from("chat_messages").select("*").order("created_at", { ascending: false }).limit(8).returns<ChatRow[]>(),
         ]);
 
-      const recentReports = dedupeByDate((reportRows ?? []).map((row) => row.report)).slice(0, 6);
+      const hydratedReports = await hydrateReportRows(supabase, reportRows);
+      const recentReports = dedupeByDate(hydratedReports).slice(0, 6);
       const summaries = dedupeByDate((summaryRows ?? []).map((row) => row.summary)).slice(0, 6);
 
       return {
@@ -507,20 +693,32 @@ function createSupabaseRepository(): Repository {
         .order("created_at", { ascending: false })
         .limit(Math.max(limit * 3, 24))
         .returns<ReportRow[]>();
-      return dedupeByDate((data ?? []).map((row) => row.report)).slice(0, limit);
+      const hydrated = await hydrateReportRows(supabase, data);
+      return dedupeByDate(hydrated).slice(0, limit);
     },
     async saveSessionReport(report) {
       const coachState = await ensureCoachState(supabase);
-      const { data: existingReportRows } = await supabase
+      let { data: existingReportRows } = await supabase
         .from("session_reports")
         .select("*")
-        .eq("report->>date", report.date)
+        .eq("report_date", report.date)
         .order("created_at", { ascending: false })
         .returns<ReportRow[]>();
-      const resolvedReport = {
+      if (!existingReportRows?.length) {
+        const legacyLookup = await supabase
+          .from("session_reports")
+          .select("*")
+          .eq("report->>date", report.date)
+          .order("created_at", { ascending: false })
+          .returns<ReportRow[]>();
+        existingReportRows = legacyLookup.data ?? [];
+      }
+
+      const resolvedReport = normalizeStoredSessionReport({
         ...report,
         id: existingReportRows?.[0]?.id ?? report.id,
-      };
+        mealLog: report.mealLog ? buildMealLogForSubmit(report.mealLog) : undefined,
+      });
       const recentReports = (await this.listSessionReports(10)).filter((item) => item.date !== resolvedReport.date);
       const { memorySummary, proposals } = buildSessionSummary(resolvedReport, recentReports, coachState.active_plan);
       const { data: existingSummaryRows } = await supabase
@@ -537,9 +735,35 @@ function createSupabaseRepository(): Repository {
       const { error } = await supabase.from("session_reports").upsert({
         id: resolvedReport.id,
         report: resolvedReport,
+        report_version: resolvedReport.reportVersion,
+        report_date: resolvedReport.date,
+        performed_day: resolvedReport.performedDay,
+        body_weight_kg: resolvedReport.bodyWeightKg,
+        sleep_hours: resolvedReport.sleepHours,
+        fatigue: resolvedReport.fatigue,
+        completed: resolvedReport.completed,
+        training_readiness: resolvedReport.nextDayDecision?.trainingReadiness ?? null,
       });
       if (error) {
         throw error;
+      }
+
+      await supabase.from("session_report_exercises").delete().eq("report_id", resolvedReport.id);
+      const exerciseRows = toExerciseRows(resolvedReport);
+      if (exerciseRows.length) {
+        const { error: exerciseError } = await supabase.from("session_report_exercises").insert(exerciseRows);
+        if (exerciseError) {
+          throw exerciseError;
+        }
+      }
+
+      await supabase.from("session_report_meals").delete().eq("report_id", resolvedReport.id);
+      const mealRows = toMealRows(resolvedReport);
+      if (mealRows.length) {
+        const { error: mealError } = await supabase.from("session_report_meals").insert(mealRows);
+        if (mealError) {
+          throw mealError;
+        }
       }
 
       await supabase.from("memory_summaries").upsert({

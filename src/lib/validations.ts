@@ -4,6 +4,7 @@ const dayCodeSchema = z.enum(["A", "B", "C"]);
 const performedDaySchema = z.union([dayCodeSchema, z.literal("rest")]);
 const schedulePatternSchema = z.literal("3on1off");
 const postWorkoutSourceSchema = z.enum(["dedicated", "lunch", "dinner"]);
+const mealAdherenceSchema = z.enum(["on_plan", "adjusted", "missed"]);
 
 export const dailyBriefRequestSchema = z.object({
   date: z.string().min(1),
@@ -143,6 +144,35 @@ export const exerciseResultSchema = z.object({
 });
 
 export const mealLogSchema = z.object({
+  breakfast: z.object({
+    content: z.string(),
+    adherence: mealAdherenceSchema,
+    deviationNote: z.string().optional(),
+  }),
+  lunch: z.object({
+    content: z.string(),
+    adherence: mealAdherenceSchema,
+    deviationNote: z.string().optional(),
+  }),
+  dinner: z.object({
+    content: z.string(),
+    adherence: mealAdherenceSchema,
+    deviationNote: z.string().optional(),
+  }),
+  preWorkout: z.object({
+    content: z.string(),
+    adherence: mealAdherenceSchema,
+    deviationNote: z.string().optional(),
+  }),
+  postWorkout: z.object({
+    content: z.string(),
+    adherence: mealAdherenceSchema,
+    deviationNote: z.string().optional(),
+  }),
+  postWorkoutSource: postWorkoutSourceSchema,
+});
+
+export const legacyMealLogSchema = z.object({
   breakfast: z.string(),
   lunch: z.string(),
   dinner: z.string(),
@@ -151,7 +181,14 @@ export const mealLogSchema = z.object({
   postWorkoutSource: postWorkoutSourceSchema,
 });
 
-export const sessionReportSchema = z.object({
+const nextDayDecisionSchema = z.object({
+  trainingReadiness: z.enum(["push", "hold", "deload"]),
+  nutritionFocus: z.string().min(1),
+  recoveryFocus: z.string().min(1),
+  priorityNotes: z.array(z.string()).min(1),
+});
+
+const sessionReportBaseSchema = z.object({
   date: z.string().min(1),
   performedDay: performedDaySchema,
   exerciseResults: z.array(exerciseResultSchema).optional(),
@@ -165,10 +202,32 @@ export const sessionReportSchema = z.object({
     z.literal(5),
   ]).optional(),
   fatigue: z.number().min(1).max(10),
-  mealLog: mealLogSchema.optional(),
-  trainingReportText: z.string().min(1),
+  trainingReportText: z.string().default(""),
   dailyReviewMarkdown: z.string().optional(),
   painNotes: z.string().optional(),
   recoveryNote: z.string().optional(),
   completed: z.boolean(),
 });
+
+const sessionReportV2Schema = sessionReportBaseSchema.extend({
+  reportVersion: z.literal(2).optional().default(2),
+  mealLog: mealLogSchema.optional(),
+  nextDayDecision: nextDayDecisionSchema.optional(),
+});
+
+const sessionReportV1Schema = sessionReportBaseSchema.extend({
+  reportVersion: z.literal(1).optional(),
+  mealLog: legacyMealLogSchema.optional(),
+});
+
+export const sessionReportSchema = z
+  .union([sessionReportV2Schema, sessionReportV1Schema])
+  .superRefine((value, ctx) => {
+    if (value.performedDay !== "rest" && (!value.exerciseResults || value.exerciseResults.length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["exerciseResults"],
+        message: "训练日必须提交动作执行记录。",
+      });
+    }
+  });

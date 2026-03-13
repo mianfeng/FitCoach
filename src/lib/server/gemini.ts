@@ -3,6 +3,8 @@ import "server-only";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 import { env } from "@/lib/server/env";
+import { describeMealExecution, describeTrainingReadiness } from "@/lib/server/domain";
+import { normalizeMealLog, resolvePostWorkoutEntry, summarizeMealAdherence } from "@/lib/session-report";
 import type { ChatContextBundle, MealPrescription, SessionReport, KnowledgeBasis } from "@/lib/types";
 
 function stripCodeFence(input: string) {
@@ -12,9 +14,10 @@ function stripCodeFence(input: string) {
 function hasStrictDailyReviewShape(input: string) {
   const normalized = stripCodeFence(input);
   return (
-    normalized.includes("1. 📊 数据核算") &&
-    normalized.includes("2. 🏋️ 训练评估") &&
-    normalized.includes("3. 🎯 质量评级")
+    normalized.includes("1. 数据摘要") &&
+    normalized.includes("2. 训练评估") &&
+    normalized.includes("3. 饮食执行") &&
+    normalized.includes("4. 次日决策")
   );
 }
 
@@ -61,6 +64,7 @@ export async function generateGeminiDailyReview(params: {
   targetMacros: MealPrescription["macros"];
   planLabel: string;
   workoutTitle: string;
+  draftReview: string;
 }) {
   if (!env.geminiApiKey) {
     return null;
@@ -68,44 +72,34 @@ export async function generateGeminiDailyReview(params: {
 
   const client = new GoogleGenerativeAI(env.geminiApiKey);
   const model = client.getGenerativeModel({ model: env.geminiModel });
-  const mealLog = params.report.mealLog;
-  const postWorkoutText =
-    mealLog?.postWorkoutSource === "lunch"
-      ? `午餐同时是练后餐：${mealLog.lunch || "未填写"}`
-      : mealLog?.postWorkoutSource === "dinner"
-        ? `晚餐同时是练后餐：${mealLog.dinner || "未填写"}`
-        : `独立练后餐：${mealLog?.postWorkout || "未填写"}`;
+  const mealLog = normalizeMealLog(params.report.mealLog);
+  const effectivePostWorkout = mealLog ? resolvePostWorkoutEntry(mealLog) : null;
+  const mealSummary = summarizeMealAdherence(mealLog);
 
   const prompt = [
     "你是 FitCoach 的饮食与训练复盘教练。",
-    "你必须严格按以下 Markdown 结构输出，不允许添加额外段落，也不允许添加代码块。",
-    "",
-    "1. 📊 数据核算",
-    "",
-    "- 估算摄入：总热量(kcal) / 蛋白质(g) / 碳水(g) / 脂肪(g)",
-    "- 缺口分析：距离目标还差多少，或超标多少",
-    "",
-    "2. 🏋️ 训练评估",
-    "",
-    "- 超负荷状态：[达标 / 停滞 / 需减载]",
-    "- 简要评价：（一句话点评今日训练质量）",
-    "",
-    "3. 🎯 质量评级",
-    "",
-    "- [🟢 完美 / 🟡 警告 / 🔴 灾难]（仅保留一个，并附一句理由）",
+    "你的任务不是重新生成结构，而是润色已有点评文案。",
+    "你必须严格保留四个编号标题、每个标题下的项目数和整体 Markdown 结构，不允许添加额外段落，也不允许添加代码块。",
+    "不能修改训练准备度结论，只能润色措辞，让它更像资深教练的次日决策建议。",
     "",
     `当天标签：${params.planLabel}`,
     `当天计划：${params.workoutTitle}`,
     `目标宏量：热量约 ${params.targetMacros.proteinG * 4 + params.targetMacros.carbsG * 4 + params.targetMacros.fatsG * 9} kcal / 蛋白质 ${params.targetMacros.proteinG} g / 碳水 ${params.targetMacros.carbsG} g / 脂肪 ${params.targetMacros.fatsG} g`,
-    `早餐：${mealLog?.breakfast || "未填写"}`,
-    `午餐：${mealLog?.lunch || "未填写"}`,
-    `晚餐：${mealLog?.dinner || "未填写"}`,
-    `练前餐：${mealLog?.preWorkout || "未填写"}`,
-    postWorkoutText,
+    `餐次执行：${mealLog ? describeMealExecution(params.report) : "未填写"}`,
+    `餐次统计：按计划 ${mealSummary.onPlan} / 调整 ${mealSummary.adjusted} / 缺失 ${mealSummary.missed}`,
+    `早餐：${mealLog?.breakfast.content || "未填写"}`,
+    `午餐：${mealLog?.lunch.content || "未填写"}`,
+    `晚餐：${mealLog?.dinner.content || "未填写"}`,
+    `练前餐：${mealLog?.preWorkout.content || "未填写"}`,
+    `练后餐：${effectivePostWorkout?.content || "未填写"}`,
     `训练与状态文字汇报：${params.report.trainingReportText || "未填写"}`,
     `体重：${params.report.bodyWeightKg} kg`,
     `睡眠：${params.report.sleepHours} h`,
     `疲劳：${params.report.fatigue}/10`,
+    `次日训练准备度：${params.report.nextDayDecision ? describeTrainingReadiness(params.report.nextDayDecision.trainingReadiness) : "未生成"}`,
+    "",
+    "请基于下面这份规则版点评直接润色：",
+    params.draftReview,
   ].join("\n");
 
   const result = await model.generateContent(prompt);

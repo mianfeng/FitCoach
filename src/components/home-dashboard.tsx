@@ -4,11 +4,14 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { SectionCard } from "@/components/section-card";
-import type { ChatMessage, DashboardSnapshot, DailyBrief, MealLog, SessionReport } from "@/lib/types";
+import { buildMealLogForSubmit, createEmptyMealLog, mealAdherenceLabels, mealSlotLabels } from "@/lib/session-report";
+import type { ChatMessage, DashboardSnapshot, DailyBrief, ExerciseResult, MealLog, SessionReport } from "@/lib/types";
 
 type ReportDraft = {
+  reportVersion: 2;
   date: string;
   performedDay: SessionReport["performedDay"];
+  exerciseResults: ExerciseResult[];
   mealLog: MealLog;
   trainingReportText: string;
   bodyWeightKg: number;
@@ -56,6 +59,14 @@ const POST_WORKOUT_SOURCE_OPTIONS: Array<{ value: MealLog["postWorkoutSource"]; 
   { value: "dinner", label: "晚餐同时是练后餐" },
 ];
 
+const MEAL_SLOTS: Array<{ key: keyof Omit<MealLog, "postWorkoutSource">; label: string }> = [
+  { key: "breakfast", label: "早餐" },
+  { key: "lunch", label: "午餐" },
+  { key: "dinner", label: "晚餐" },
+  { key: "preWorkout", label: "练前餐" },
+  { key: "postWorkout", label: "练后餐" },
+];
+
 function buildReportDraft(
   brief: DailyBrief,
   snapshot: DashboardSnapshot,
@@ -63,21 +74,30 @@ function buildReportDraft(
   existingReport?: SessionReport,
 ): ReportDraft {
   return {
+    reportVersion: 2,
     date,
     performedDay: brief.calendarSlot,
-    mealLog: existingReport?.mealLog ?? {
-      breakfast: "",
-      lunch: "",
-      dinner: "",
-      preWorkout: "",
-      postWorkout: "",
-      postWorkoutSource: "dedicated",
-    },
-    trainingReportText:
-      existingReport?.trainingReportText ??
-      existingReport?.recoveryNote ??
-      existingReport?.painNotes ??
-      "",
+    exerciseResults:
+      existingReport?.exerciseResults ??
+      (brief.isRestDay
+        ? []
+        : brief.workoutPrescription.exercises.map(
+            (exercise) =>
+              ({
+                exerciseName: exercise.name,
+                performed: true,
+                targetSets: exercise.sets,
+                targetReps: exercise.reps,
+                actualSets: exercise.sets,
+                actualReps: exercise.reps,
+                topSetWeightKg: exercise.suggestedWeightKg,
+                rpe: 8,
+                droppedSets: false,
+                notes: "",
+              }) satisfies ExerciseResult,
+          )),
+    mealLog: existingReport?.mealLog ?? createEmptyMealLog(),
+    trainingReportText: existingReport?.trainingReportText ?? "",
     bodyWeightKg: existingReport?.bodyWeightKg ?? snapshot.profile.currentWeightKg,
     sleepHours: existingReport?.sleepHours ?? snapshot.profile.sleepTargetHours,
     fatigue: existingReport?.fatigue ?? 5,
@@ -195,12 +215,18 @@ export function HomeDashboard({
     }
   }, [snapshot.plan.goal, today, todayBrief.id]);
 
-  function updateMeal(field: keyof Omit<MealLog, "postWorkoutSource">, value: string) {
+  function updateMeal(
+    field: keyof Omit<MealLog, "postWorkoutSource">,
+    patch: Partial<MealLog[keyof Omit<MealLog, "postWorkoutSource">]>,
+  ) {
     setReportDraft((current) => ({
       ...current,
       mealLog: {
         ...current.mealLog,
-        [field]: value,
+        [field]: {
+          ...current.mealLog[field],
+          ...patch,
+        },
       },
     }));
   }
@@ -211,7 +237,6 @@ export function HomeDashboard({
       mealLog: {
         ...current.mealLog,
         postWorkoutSource: source,
-        postWorkout: source === "dedicated" ? current.mealLog.postWorkout : "",
       },
     }));
   }
@@ -220,8 +245,15 @@ export function HomeDashboard({
     setReportDraft((current) => ({
       ...current,
       trainingReportText: value,
-      painNotes: value,
-      recoveryNote: value,
+    }));
+  }
+
+  function updateExercise(index: number, patch: Partial<ExerciseResult>) {
+    setReportDraft((current) => ({
+      ...current,
+      exerciseResults: current.exerciseResults.map((exercise, exerciseIndex) =>
+        exerciseIndex === index ? { ...exercise, ...patch } : exercise,
+      ),
     }));
   }
 
@@ -263,17 +295,11 @@ export function HomeDashboard({
       const payload: ReportDraft = {
         ...reportDraft,
         date: today,
+        reportVersion: 2,
         performedDay: todayBrief.calendarSlot,
+        exerciseResults: todayBrief.isRestDay ? [] : reportDraft.exerciseResults,
         completed: true,
-        painNotes: reportDraft.trainingReportText,
-        recoveryNote: reportDraft.trainingReportText,
-        mealLog:
-          reportDraft.mealLog.postWorkoutSource === "dedicated"
-            ? reportDraft.mealLog
-            : {
-                ...reportDraft.mealLog,
-                postWorkout: "",
-              },
+        mealLog: buildMealLogForSubmit(reportDraft.mealLog),
       };
 
       const data = await postJson<SessionReportResponse>("/api/session-report", payload);
@@ -398,7 +424,7 @@ export function HomeDashboard({
       <SectionCard
         eyebrow="Execution"
         title="今日计划与记录"
-        description="训练计划仍按当天日历显示；实际训练和饮食改为文本记录，方便你按真实情况自由汇报。"
+        description="按动作、餐次、恢复和总结四块提交日报。训练日必须记录动作执行，点评会直接给出明天怎么做。"
       >
         <div className="space-y-4">
           {feedback ? (
@@ -413,37 +439,121 @@ export function HomeDashboard({
           <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Workout</div>
-                <h3 className="mt-1 text-lg font-semibold text-[#151811]">{todayBrief.workoutPrescription.title}</h3>
+                <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Workout Execution</div>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">动作执行</h3>
               </div>
               <div className="w-fit rounded-full bg-[#d5ff63] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-[#151811]">
                 {todayBrief.calendarLabel}
               </div>
             </div>
 
-            <div className="mt-4 overflow-hidden rounded-[18px] border border-black/8 bg-[#faf7ef]">
+            <div className="mt-2 text-sm leading-6 text-black/54">
+              {todayBrief.isRestDay
+                ? "今天是休息日，不需要填写动作执行，直接补餐次、恢复和总结即可。"
+                : "按处方逐个回填实际完成情况，动作完成度会直接进入点评和次日建议。"}
+            </div>
+
+            <div className="mt-4 space-y-3">
               {todayBrief.workoutPrescription.exercises.length ? (
-                todayBrief.workoutPrescription.exercises.map((exercise) => (
+                reportDraft.exerciseResults.map((exercise, index) => (
                   <article
-                    key={exercise.name}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-black/8 px-3 py-3 last:border-b-0"
+                    key={exercise.exerciseName}
+                    className="rounded-[20px] border border-black/10 bg-[#faf7ef] p-4"
                   >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-[#151811]">{exercise.name}</div>
-                      <div className="truncate text-[11px] text-black/50">{exercise.focus}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-black/58">
-                        {exercise.sets} x {exercise.reps}
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-[#151811]">{exercise.exerciseName}</div>
+                        <div className="mt-1 text-xs text-black/52">
+                          目标 {exercise.targetSets} x {exercise.targetReps}
+                        </div>
                       </div>
-                      <div className="mt-1 text-sm font-semibold text-[#151811]">
-                        {exercise.suggestedWeightKg ? `${exercise.suggestedWeightKg}kg` : "自重"}
-                      </div>
+                      <label className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-[#151811]">
+                        <input
+                          type="checkbox"
+                          checked={exercise.performed !== false}
+                          onChange={(event) =>
+                            updateExercise(index, {
+                              performed: event.target.checked,
+                              actualSets: event.target.checked ? exercise.actualSets || exercise.targetSets : 0,
+                            })
+                          }
+                          className="h-4 w-4 accent-[#151811]"
+                        />
+                        已执行
+                      </label>
                     </div>
+
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                      <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">实际组数</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={exercise.actualSets}
+                          onChange={(event) => updateExercise(index, { actualSets: Number(event.target.value) })}
+                          className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                        />
+                      </label>
+                      <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">实际次数</span>
+                        <input
+                          value={exercise.actualReps}
+                          onChange={(event) => updateExercise(index, { actualReps: event.target.value })}
+                          className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                        />
+                      </label>
+                      <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">顶组重量 kg</span>
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          value={exercise.topSetWeightKg ?? ""}
+                          onChange={(event) =>
+                            updateExercise(index, {
+                              topSetWeightKg: event.target.value ? Number(event.target.value) : undefined,
+                            })
+                          }
+                          className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                        />
+                      </label>
+                      <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">RPE</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="10"
+                          step="0.1"
+                          value={exercise.rpe}
+                          onChange={(event) => updateExercise(index, { rpe: Number(event.target.value) })}
+                          className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                        />
+                      </label>
+                      <label className="flex items-center gap-3 rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm text-[#151811]">
+                        <input
+                          type="checkbox"
+                          checked={exercise.droppedSets}
+                          onChange={(event) => updateExercise(index, { droppedSets: event.target.checked })}
+                          className="h-4 w-4 accent-[#151811]"
+                        />
+                        有掉组 / 明显掉速
+                      </label>
+                    </div>
+
+                    <label className="mt-3 block rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                      <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">动作备注</span>
+                      <textarea
+                        rows={2}
+                        value={exercise.notes ?? ""}
+                        onChange={(event) => updateExercise(index, { notes: event.target.value })}
+                        className="mt-2 w-full resize-none bg-transparent text-sm leading-6 text-[#151811] outline-none"
+                        placeholder="比如：最后两组速度掉得快、肩前侧顶、改成了器械版本。"
+                      />
+                    </label>
                   </article>
                 ))
               ) : (
-                <div className="px-4 py-4 text-sm leading-6 text-black/60">
+                <div className="rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4 text-sm leading-6 text-black/60">
                   今天对应休息日，建议完成轻量活动、拉伸和休息日饮食，不安排训练动作。
                 </div>
               )}
@@ -451,7 +561,8 @@ export function HomeDashboard({
           </div>
 
           <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Diet Log</div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Meal Execution</div>
+            <h3 className="mt-1 text-lg font-semibold text-[#151811]">餐次执行</h3>
             <div className="mt-4 flex flex-wrap gap-2">
               {POST_WORKOUT_SOURCE_OPTIONS.map((option) => (
                 <button
@@ -470,103 +581,177 @@ export function HomeDashboard({
             </div>
 
             <div className="mt-4 grid gap-3">
-              {[
-                { key: "breakfast", label: "早餐" },
-                { key: "lunch", label: "午餐" },
-                { key: "dinner", label: "晚餐" },
-                { key: "preWorkout", label: "练前餐" },
-              ].map((field) => {
-                const isPostWorkout =
+              {MEAL_SLOTS.map((field) => {
+                const isMirroredPostWorkout =
+                  field.key === "postWorkout" && reportDraft.mealLog.postWorkoutSource !== "dedicated";
+                const linkedMeal =
+                  reportDraft.mealLog.postWorkoutSource === "lunch"
+                    ? reportDraft.mealLog.lunch
+                    : reportDraft.mealLog.postWorkoutSource === "dinner"
+                      ? reportDraft.mealLog.dinner
+                      : reportDraft.mealLog.postWorkout;
+                const currentEntry = isMirroredPostWorkout ? linkedMeal : reportDraft.mealLog[field.key];
+                const isLinkedSlot =
                   (field.key === "lunch" && reportDraft.mealLog.postWorkoutSource === "lunch") ||
                   (field.key === "dinner" && reportDraft.mealLog.postWorkoutSource === "dinner");
-                const value = reportDraft.mealLog[field.key as keyof Omit<MealLog, "postWorkout" | "postWorkoutSource">];
 
                 return (
                   <label key={field.key} className="block rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-[11px] uppercase tracking-[0.22em] text-black/42">{field.label}</span>
-                      {isPostWorkout ? (
-                        <span className="rounded-full bg-[#d5ff63] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#151811]">
-                          Post-workout
-                        </span>
-                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        {isLinkedSlot ? (
+                          <span className="rounded-full bg-[#d5ff63] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#151811]">
+                            Post-workout
+                          </span>
+                        ) : null}
+                        {isMirroredPostWorkout ? (
+                          <span className="rounded-full bg-[#151811] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/74">
+                            跟随
+                            {reportDraft.mealLog.postWorkoutSource === "lunch"
+                              ? mealSlotLabels.lunch
+                              : mealSlotLabels.dinner}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(["on_plan", "adjusted", "missed"] as const).map((status) => (
+                        <button
+                          key={status}
+                          type="button"
+                          disabled={isMirroredPostWorkout}
+                          onClick={() => updateMeal(field.key, { adherence: status })}
+                          className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
+                            currentEntry.adherence === status
+                              ? "bg-[#151811] text-white"
+                              : "border border-black/10 bg-white text-[#151811]"
+                          } ${isMirroredPostWorkout ? "cursor-not-allowed opacity-60" : ""}`}
+                        >
+                          {mealAdherenceLabels[status]}
+                        </button>
+                      ))}
+                    </div>
+
                     <textarea
-                      value={value}
-                      onChange={(event) =>
-                        updateMeal(field.key as keyof Omit<MealLog, "postWorkoutSource">, event.target.value)
-                      }
+                      value={currentEntry.content}
+                      onChange={(event) => updateMeal(field.key, { content: event.target.value })}
                       rows={2}
-                      className="mt-3 w-full resize-none bg-transparent text-sm leading-7 outline-none"
+                      disabled={isMirroredPostWorkout}
+                      className="mt-3 w-full resize-none bg-transparent text-sm leading-7 outline-none disabled:opacity-50"
                       placeholder={`输入${field.label}内容，如食物、份量、饮品。`}
+                    />
+
+                    <textarea
+                      value={currentEntry.deviationNote ?? ""}
+                      onChange={(event) => updateMeal(field.key, { deviationNote: event.target.value })}
+                      rows={2}
+                      disabled={isMirroredPostWorkout}
+                      className="mt-3 w-full resize-none rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm leading-6 outline-none disabled:opacity-50"
+                      placeholder="如果有调整或缺失，写下原因，比如临时换餐、时间错位、没吃到。"
                     />
                   </label>
                 );
               })}
-
-              {reportDraft.mealLog.postWorkoutSource === "dedicated" ? (
-                <label className="block rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4">
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-black/42">练后餐</span>
-                  <textarea
-                    value={reportDraft.mealLog.postWorkout}
-                    onChange={(event) => updateMeal("postWorkout", event.target.value)}
-                    rows={2}
-                    className="mt-3 w-full resize-none bg-transparent text-sm leading-7 outline-none"
-                    placeholder="输入练后餐内容，如米饭、蛋白粉、牛奶等。"
-                  />
-                </label>
-              ) : null}
             </div>
           </div>
 
           <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">训练与状态文字汇报</div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Recovery Signals</div>
+            <h3 className="mt-1 text-lg font-semibold text-[#151811]">恢复指标</h3>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">体重 kg</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={reportDraft.bodyWeightKg}
+                  onChange={(event) =>
+                    setReportDraft((current) => ({ ...current, bodyWeightKg: Number(event.target.value) }))
+                  }
+                  className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                />
+              </label>
+              <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">睡眠 h</span>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={reportDraft.sleepHours}
+                  onChange={(event) =>
+                    setReportDraft((current) => ({ ...current, sleepHours: Number(event.target.value) }))
+                  }
+                  className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                />
+              </label>
+              <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">疲劳 1-10</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  step="1"
+                  value={reportDraft.fatigue}
+                  onChange={(event) => setReportDraft((current) => ({ ...current, fatigue: Number(event.target.value) }))}
+                  className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                />
+              </label>
+            </div>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">疼痛 / 不适</span>
+                <textarea
+                  rows={3}
+                  value={reportDraft.painNotes}
+                  onChange={(event) => setReportDraft((current) => ({ ...current, painNotes: event.target.value }))}
+                  className="mt-2 w-full resize-none bg-transparent text-sm leading-6 text-[#151811] outline-none"
+                  placeholder="例如：右肩前束有顶感，深蹲膝盖没问题。"
+                />
+              </label>
+              <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">恢复备注</span>
+                <textarea
+                  rows={3}
+                  value={reportDraft.recoveryNote}
+                  onChange={(event) => setReportDraft((current) => ({ ...current, recoveryNote: event.target.value }))}
+                  className="mt-2 w-full resize-none bg-transparent text-sm leading-6 text-[#151811] outline-none"
+                  placeholder="例如：下午很困、拉伸后状态好一点、今天步数偏高。"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Summary Note</div>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">总结备注</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((current) => !current)}
+                className="rounded-full border border-black/10 bg-[#f7f3e8] px-3 py-2 text-xs font-semibold text-[#151811]"
+              >
+                {showAdvanced ? "收起提示" : "展开提示"}
+              </button>
+            </div>
+
+            {showAdvanced ? (
+              <div className="mt-3 rounded-[18px] border border-black/10 bg-[#faf7ef] px-4 py-3 text-sm leading-6 text-black/58">
+                这里补充今天最重要的上下文，比如临时换动作、状态异常、时间错位、训练节奏和你认为明天需要记住的事。
+              </div>
+            ) : null}
+
             <textarea
               value={reportDraft.trainingReportText}
               onChange={(event) => updateTrainingReport(event.target.value)}
               rows={5}
               className="mt-4 w-full rounded-[18px] border border-black/10 bg-[#faf7ef] px-4 py-3 text-sm leading-7 outline-none"
-              placeholder="描述今天做了哪些动作、完成质量、哪里不舒服、恢复状态，以及任何临时调整。"
+              placeholder="自由补充今天最重要的上下文，例如：卧推最后两组明显变慢，午饭晚了 90 分钟，晚上恢复一般。"
             />
-
-            <div className="mt-3 rounded-[20px] border border-black/10 bg-[#f7f3e8] p-3">
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((current) => !current)}
-                className="flex w-full items-center justify-between text-left"
-              >
-                <span className="text-[11px] uppercase tracking-[0.24em] text-black/42">高级字段</span>
-                <span className="text-xs font-semibold text-[#151811]">{showAdvanced ? "收起" : "展开"}</span>
-              </button>
-              {showAdvanced ? (
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                    <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">体重 kg</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={reportDraft.bodyWeightKg}
-                      onChange={(event) =>
-                        setReportDraft((current) => ({ ...current, bodyWeightKg: Number(event.target.value) }))
-                      }
-                      className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
-                    />
-                  </label>
-                  <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                    <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">睡眠 h</span>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={reportDraft.sleepHours}
-                      onChange={(event) =>
-                        setReportDraft((current) => ({ ...current, sleepHours: Number(event.target.value) }))
-                      }
-                      className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
-                    />
-                  </label>
-                </div>
-              ) : null}
-            </div>
 
             <button
               type="button"

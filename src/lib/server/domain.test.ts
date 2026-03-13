@@ -5,8 +5,8 @@ import {
   buildChatContextBundle,
   buildDailyBrief,
   buildNextDayDecision,
-  buildPreferredDailyReviewMarkdown,
   buildSessionSummary,
+  buildStrictDailyReviewMarkdown,
   getNextScheduledDay,
 } from "@/lib/server/domain";
 import type { SessionReport } from "@/lib/types";
@@ -171,7 +171,7 @@ describe("adjustment proposal", () => {
 });
 
 describe("daily review presentation", () => {
-  it("builds the preferred three-section review format", () => {
+  it("builds the strict four-section review format", () => {
     const report: SessionReport = {
       id: "review-1",
       reportVersion: 2,
@@ -199,7 +199,7 @@ describe("daily review presentation", () => {
       createdAt: "2026-03-13T10:00:00.000Z",
     };
 
-    const review = buildPreferredDailyReviewMarkdown({
+    const review = buildStrictDailyReviewMarkdown({
       report,
       targetMacros: { proteinG: 108, carbsG: 180, fatsG: 54 },
       nextDayDecision: report.nextDayDecision,
@@ -208,13 +208,14 @@ describe("daily review presentation", () => {
     expect(review).toContain("1. 📊 数据核算");
     expect(review).toContain("2. 🏋️ 训练评估");
     expect(review).toContain("3. 🎯 质量评级");
-    expect(review).toContain("缺口判断");
-    expect(review).toContain("明日重点");
+    expect(review).toContain("4. ⚡ 行动建议");
+    expect(review).toContain("估算摄入");
+    expect(review).toContain("缺口分析");
   });
 });
 
 describe("chat context bundle", () => {
-  it("includes latest report detail for coach analysis", () => {
+  it("includes latest report detail and date information for coach analysis", () => {
     const report: SessionReport = {
       id: "chat-1",
       reportVersion: 2,
@@ -254,5 +255,6 @@ describe("chat context bundle", () => {
     expect(bundle.latestReportSummary).toContain("体重 61 kg");
     expect(bundle.latestReportSummary).toContain("饮食记录");
     expect(bundle.recentReportSummary).toContain("最新记录");
+    expect(bundle.latestReportDate).toBe("2026-03-13");
   });
 });

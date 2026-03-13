@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { SectionCard } from "@/components/section-card";
+import { summarizeReportNutrition } from "@/lib/nutrition";
 import { buildMealLogForSubmit, countFilledMealSlots, createEmptyMealLog, mealAdherenceLabels, mealSlotLabels } from "@/lib/session-report";
 import type { ChatMessage, DashboardSnapshot, DailyBrief, ExerciseResult, MealLog, SessionReport } from "@/lib/types";
 
@@ -68,6 +69,19 @@ const MEAL_SLOTS: Array<{ key: keyof Omit<MealLog, "postWorkoutSource">; label: 
   { key: "preWorkout", label: "练前餐" },
   { key: "postWorkout", label: "练后餐" },
 ];
+
+function formatNutritionSummary(calories: number, proteinG: number, carbsG: number, fatsG: number) {
+  return `${calories} kcal / P ${proteinG} g / C ${carbsG} g / F ${fatsG} g`;
+}
+
+function formatGapValue(value: number, unit: string) {
+  if (Math.abs(value) < 0.05) {
+    return `0 ${unit}`;
+  }
+
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value} ${unit}`;
+}
 
 function buildDefaultExerciseResults(brief: DailyBrief) {
   if (brief.isRestDay) {
@@ -225,6 +239,17 @@ export function HomeDashboard({
   const [hasExerciseEdits, setHasExerciseEdits] = useState(() => Boolean(existingReport?.exerciseResults?.length));
   const isSubmitting = submissionMode !== null;
   const setIsSubmitting = (value: boolean) => setSubmissionMode(value ? "completed" : null);
+  const nutritionTarget = {
+    calories:
+      todayBrief.mealPrescription.macros.proteinG * 4 +
+      todayBrief.mealPrescription.macros.carbsG * 4 +
+      todayBrief.mealPrescription.macros.fatsG * 9,
+    proteinG: todayBrief.mealPrescription.macros.proteinG,
+    carbsG: todayBrief.mealPrescription.macros.carbsG,
+    fatsG: todayBrief.mealPrescription.macros.fatsG,
+  };
+  const nutritionPreview = summarizeReportNutrition(reportDraft.mealLog, nutritionTarget);
+  const previewMealLog = nutritionPreview.mealLog ?? reportDraft.mealLog;
 
   useEffect(() => {
     const report = snapshot.recentReports.find((item) => item.date === today);
@@ -704,20 +729,45 @@ export function HomeDashboard({
               ))}
             </div>
 
+            <div className="mt-4 rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4">
+              <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Nutrition Preview</div>
+              <div className="mt-2 text-sm font-semibold text-[#151811]">
+                {formatNutritionSummary(
+                  nutritionPreview.nutritionTotals.calories,
+                  nutritionPreview.nutritionTotals.proteinG,
+                  nutritionPreview.nutritionTotals.carbsG,
+                  nutritionPreview.nutritionTotals.fatsG,
+                )}
+              </div>
+              <div className="mt-2 grid gap-2 text-xs text-black/58 sm:grid-cols-2">
+                <div>热量差值 {formatGapValue(nutritionPreview.nutritionGap.calories, "kcal")}</div>
+                <div>蛋白差值 {formatGapValue(nutritionPreview.nutritionGap.proteinG, "g")}</div>
+                <div>碳水差值 {formatGapValue(nutritionPreview.nutritionGap.carbsG, "g")}</div>
+                <div>脂肪差值 {formatGapValue(nutritionPreview.nutritionGap.fatsG, "g")}</div>
+              </div>
+              {nutritionPreview.nutritionWarnings.length ? (
+                <div className="mt-3 space-y-1 text-[11px] leading-5 text-[#8a5a1f]">
+                  {nutritionPreview.nutritionWarnings.map((warning) => (
+                    <div key={warning}>{warning}</div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
             <div className="mt-4 grid gap-3">
               {MEAL_SLOTS.map((field) => {
                 const isMirroredPostWorkout =
-                  field.key === "postWorkout" && reportDraft.mealLog.postWorkoutSource !== "dedicated";
+                  field.key === "postWorkout" && previewMealLog.postWorkoutSource !== "dedicated";
                 const linkedMeal =
-                  reportDraft.mealLog.postWorkoutSource === "lunch"
-                    ? reportDraft.mealLog.lunch
-                    : reportDraft.mealLog.postWorkoutSource === "dinner"
-                      ? reportDraft.mealLog.dinner
-                      : reportDraft.mealLog.postWorkout;
-                const currentEntry = isMirroredPostWorkout ? linkedMeal : reportDraft.mealLog[field.key];
+                  previewMealLog.postWorkoutSource === "lunch"
+                    ? previewMealLog.lunch
+                    : previewMealLog.postWorkoutSource === "dinner"
+                      ? previewMealLog.dinner
+                      : previewMealLog.postWorkout;
+                const currentEntry = isMirroredPostWorkout ? linkedMeal : previewMealLog[field.key];
                 const isLinkedSlot =
-                  (field.key === "lunch" && reportDraft.mealLog.postWorkoutSource === "lunch") ||
-                  (field.key === "dinner" && reportDraft.mealLog.postWorkoutSource === "dinner");
+                  (field.key === "lunch" && previewMealLog.postWorkoutSource === "lunch") ||
+                  (field.key === "dinner" && previewMealLog.postWorkoutSource === "dinner");
 
                 return (
                   <label key={field.key} className="block rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4">
@@ -732,7 +782,7 @@ export function HomeDashboard({
                         {isMirroredPostWorkout ? (
                           <span className="rounded-full bg-[#151811] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/74">
                             跟随
-                            {reportDraft.mealLog.postWorkoutSource === "lunch"
+                            {previewMealLog.postWorkoutSource === "lunch"
                               ? mealSlotLabels.lunch
                               : mealSlotLabels.dinner}
                           </span>
@@ -775,6 +825,40 @@ export function HomeDashboard({
                       className="mt-3 w-full resize-none rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm leading-6 outline-none disabled:opacity-50"
                       placeholder="如果有调整或缺失，写下原因，比如临时换餐、时间错位、没吃到。"
                     />
+
+                    {currentEntry.content.trim() ? (
+                      <div className="mt-3 rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                        <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Parsed Nutrition</div>
+                        <div className="mt-2 text-sm font-medium text-[#151811]">
+                          {formatNutritionSummary(
+                            currentEntry.nutritionEstimate?.calories ?? 0,
+                            currentEntry.nutritionEstimate?.proteinG ?? 0,
+                            currentEntry.nutritionEstimate?.carbsG ?? 0,
+                            currentEntry.nutritionEstimate?.fatsG ?? 0,
+                          )}
+                        </div>
+                        {currentEntry.parsedItems?.length ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {currentEntry.parsedItems.map((item) => (
+                              <span
+                                key={`${field.key}-${item.name}-${item.sourceText}`}
+                                className="rounded-full bg-[#f1ebd9] px-2 py-1 text-[10px] text-black/62"
+                              >
+                                {item.name}
+                                {item.grams ? ` ${item.grams}g` : item.milliliters ? ` ${item.milliliters}ml` : ""}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        {currentEntry.analysisWarnings?.length ? (
+                          <div className="mt-2 space-y-1 text-[11px] leading-5 text-[#8a5a1f]">
+                            {currentEntry.analysisWarnings.map((warning) => (
+                              <div key={`${field.key}-${warning}`}>{warning}</div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </label>
                 );
               })}

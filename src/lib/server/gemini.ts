@@ -3,7 +3,7 @@ import "server-only";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 import { env } from "@/lib/server/env";
-import { describeMealExecution, describeTrainingReadiness } from "@/lib/server/domain";
+import { describeTrainingReadiness } from "@/lib/server/domain";
 import { normalizeMealLog, resolvePostWorkoutEntry, summarizeMealAdherence } from "@/lib/session-report";
 import type { ChatContextBundle, KnowledgeBasis, MealPrescription, SessionReport } from "@/lib/types";
 
@@ -11,12 +11,24 @@ function stripCodeFence(input: string) {
   return input.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
 }
 
-function hasPreferredDailyReviewShape(input: string) {
+function hasStrictCoachShape(input: string) {
+  const normalized = stripCodeFence(input);
+  return (
+    normalized.includes("1. 结论") &&
+    normalized.includes("2. 分析依据") &&
+    normalized.includes("3. 结合我的情况") &&
+    normalized.includes("4. 实际建议") &&
+    normalized.includes("5. 延伸提醒")
+  );
+}
+
+function hasStrictDailyReviewShape(input: string) {
   const normalized = stripCodeFence(input);
   return (
     normalized.includes("1. 📊 数据核算") &&
     normalized.includes("2. 🏋️ 训练评估") &&
-    normalized.includes("3. 🎯 质量评级")
+    normalized.includes("3. 🎯 质量评级") &&
+    normalized.includes("4. ⚡ 行动建议")
   );
 }
 
@@ -44,18 +56,30 @@ export async function generateGeminiCoachReply(params: {
   const prompt = [
     "You are FitCoach.",
     "Reply in Simplified Chinese.",
-    "Sound like a knowledgeable training friend: grounded, experienced, candid, and easy to talk to.",
-    "Do not sound like customer support, a rigid template, or a motivational slogan generator.",
-    "Use the handbook as a reference when useful, but do not depend on it mechanically and do not pretend it is the only authority.",
-    "You can go deep on training theory, recovery logic, nutrition logic, tradeoffs, and likely mechanisms when that helps the user think clearly.",
-    "If evidence is thin, say so plainly. Avoid hallucinations.",
-    "Do not rewrite the user's formal long-term plan on your own. Give advice, options, cautions, and reasoning.",
-    "Natural prose is preferred. Do not force numbered sections unless structure genuinely helps.",
-    "When the user asks about today, today's diet, today's training, today's recovery, or asks '怎么样', you must analyze the latest recorded report first.",
-    "For those questions, explicitly use the available numbers before giving judgment: body weight, sleep, fatigue, meal completion, training completion, notes.",
-    "If the current report already gives enough signal, do not drift into generic lean-bulk theory and do not tell the user to generate today's prescription first.",
-    "Only ask a follow-up question when the current data is truly insufficient, and say exactly what is missing.",
-    "If the user asks only about diet completion, focus on adherence, completeness, likely gap, and the next correction. Keep the answer on-topic.",
+    "Sound like a knowledgeable training friend, not customer support.",
+    "Use the handbook as a reference when useful, but do not depend on it mechanically.",
+    "You must output strictly in this markdown structure and must not add any extra section, preface, or closing paragraph:",
+    "1. 结论",
+    "- Directly answer which option is better, or whether you recommend it.",
+    "2. 分析依据",
+    "- Analyze from goal fit / nutrition structure or training stimulus / fatigue cost / practicality / long-term return.",
+    "3. 结合我的情况",
+    "- Explain using the user's current weight, goal, split, handbook logic, equipment limits, and latest report status.",
+    "4. 实际建议",
+    "- Tell the user what to choose, when to use it, and how to substitute it.",
+    "5. 延伸提醒",
+    "- Give one mistake to avoid, one judging criterion, or one useful follow-up question.",
+    "When the user asks about today, today's diet, today's training, or asks '怎么样', you must first analyze recorded data.",
+    `Today's date is ${params.context.currentDate}.`,
+    params.context.latestReportDate
+      ? `Latest recorded report date is ${params.context.latestReportDate}.`
+      : "There is no recorded report yet.",
+    params.context.latestReportIsToday
+      ? "The latest recorded report is for today."
+      : "Do not pretend the latest recorded report is today's report if the dates differ. State the date mismatch clearly in section 3.",
+    "If the user asks only about diet completion, stay focused on diet adherence, completeness, likely gap, and the next correction.",
+    "If the current data is enough, do not tell the user to generate today's prescription first.",
+    "Only ask for more data if the current record truly cannot answer the question.",
     "",
     `Persona name: ${params.context.persona.name}`,
     `Persona voice: ${params.context.persona.voice}`,
@@ -72,18 +96,11 @@ export async function generateGeminiCoachReply(params: {
     ...basisLines,
     "",
     `User question: ${params.message}`,
-    "",
-    "Answer requirements:",
-    "- Start with the direct answer or recommendation.",
-    "- If current data exists, judge that data first instead of restarting from abstract goals.",
-    "- Pull in theory only when it sharpens the judgment, not as filler.",
-    "- Mention which part is based on recorded data and which part is inference when that distinction matters.",
-    "- Keep the tone human, specific, and slightly sharp when needed.",
-    "- If the question should really be answered by generating today's prescription, say that only when the existing data cannot answer the question.",
   ].join("\n");
 
   const result = await model.generateContent(prompt);
-  return result.response.text();
+  const text = stripCodeFence(result.response.text());
+  return hasStrictCoachShape(text) ? text : null;
 }
 
 export async function generateGeminiDailyReview(params: {
@@ -102,23 +119,33 @@ export async function generateGeminiDailyReview(params: {
   const mealLog = normalizeMealLog(params.report.mealLog);
   const effectivePostWorkout = mealLog ? resolvePostWorkoutEntry(mealLog) : null;
   const mealSummary = summarizeMealAdherence(mealLog);
+  const targetCalories = params.targetMacros.proteinG * 4 + params.targetMacros.carbsG * 4 + params.targetMacros.fatsG * 9;
 
   const prompt = [
     "You are FitCoach's daily review editor.",
     "Reply in Simplified Chinese.",
-    "You must polish the existing draft review only. Do not invent a new outline.",
-    "You must preserve these three headings exactly: 1. 📊 数据核算 / 2. 🏋️ 训练评估 / 3. 🎯 质量评级.",
-    "Keep markdown stable. Do not add extra sections and do not add code fences.",
-    "Do not turn the review into a bureaucratic summary. It should read like a sharp coach commenting on real execution quality.",
-    "Section 1 must talk about the recorded numbers and whether today's intake record is complete enough to support a conclusion.",
-    "Section 2 must stay concrete. If it is a rest day, do not fabricate training stress. If it is a training day, mention completion, RPE, and dropped sets when useful.",
-    "Section 3 must contain one explicit quality verdict and then the tomorrow focus.",
-    "Do not change the final training-readiness conclusion. Improve phrasing and sharpness only.",
+    "You must polish the existing draft review only.",
+    "You must output strictly in this markdown structure and must not add any extra paragraph:",
+    "1. 📊 数据核算",
+    "- 估算摄入：总热量(kcal) / 蛋白质(g) / 碳水(g) / 脂肪(g)",
+    "- 缺口分析：距离目标还差多少，或超标多少",
+    "2. 🏋️ 训练评估",
+    "- 超负荷状态：[达标 / 停滞 / 需减载]",
+    "- 简要评价：（一句话点评今日训练质量）",
+    "3. 🎯 质量评级",
+    "- [🟢 完美 / 🟡 警告 / 🔴 灾难]（仅保留一个，并附一句理由）",
+    "4. ⚡ 行动建议",
+    "- 仅限1-3条",
+    "- 必须具体、直接、可执行",
+    "Rating rules:",
+    "- 🟢 完美：营养目标总体偏差在±10%内，训练完成度高，无明显违规",
+    "- 🟡 警告：任一关键指标偏差10%–25%，或训练质量一般，或存在轻度违规",
+    "- 🔴 灾难：任一关键指标偏差超过25%，或出现饮酒、暴食、明显漏训、持续疲劳等重大问题",
+    "Do not add theory dump. Do not add narrative before section 1 or after section 4.",
     "",
     `Plan label: ${params.planLabel}`,
     `Workout title: ${params.workoutTitle}`,
-    `Target macros: about ${params.targetMacros.proteinG * 4 + params.targetMacros.carbsG * 4 + params.targetMacros.fatsG * 9} kcal / protein ${params.targetMacros.proteinG} g / carbs ${params.targetMacros.carbsG} g / fats ${params.targetMacros.fatsG} g`,
-    `Meal execution: ${mealLog ? describeMealExecution(params.report) : "未填写"}`,
+    `Target intake: ${targetCalories} kcal / ${params.targetMacros.proteinG} g protein / ${params.targetMacros.carbsG} g carbs / ${params.targetMacros.fatsG} g fats`,
     `Meal summary: on plan ${mealSummary.onPlan} / adjusted ${mealSummary.adjusted} / missed ${mealSummary.missed}`,
     `Breakfast: ${mealLog?.breakfast.content || "未填写"}`,
     `Lunch: ${mealLog?.lunch.content || "未填写"}`,
@@ -137,5 +164,5 @@ export async function generateGeminiDailyReview(params: {
 
   const result = await model.generateContent(prompt);
   const text = stripCodeFence(result.response.text());
-  return hasPreferredDailyReviewShape(text) ? text : null;
+  return hasStrictDailyReviewShape(text) ? text : null;
 }

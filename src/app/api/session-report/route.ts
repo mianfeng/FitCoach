@@ -4,9 +4,10 @@ import { NextResponse } from "next/server";
 import {
   buildDailyBriefFromSnapshot,
   buildNextDayDecision,
-  buildPreferredDailyReviewMarkdown,
+  buildStrictDailyReviewMarkdown,
   buildTodayAutofillBrief,
 } from "@/lib/server/domain";
+import { summarizeReportNutrition } from "@/lib/nutrition";
 import { generateGeminiDailyReview } from "@/lib/server/gemini";
 import { deriveDietAdherence, normalizeMealLog } from "@/lib/session-report";
 import { getRepository } from "@/lib/server/repository";
@@ -28,6 +29,35 @@ export async function POST(request: Request) {
       painNotes: parsed.painNotes?.trim() || undefined,
       recoveryNote: parsed.recoveryNote?.trim() || undefined,
     };
+    const snapshot = await repository.getDashboardSnapshot();
+    const planSnapshot = await repository.findPlanSnapshotByDate(parsed.date);
+    const reviewBrief =
+      planSnapshot
+        ? buildDailyBriefFromSnapshot(planSnapshot)
+        : buildTodayAutofillBrief(
+            parsed.date,
+            snapshot.profile,
+            snapshot.plan,
+            snapshot.templates,
+            snapshot.recentReports,
+          );
+    const targetNutrition = {
+      calories:
+        reviewBrief.mealPrescription.macros.proteinG * 4 +
+        reviewBrief.mealPrescription.macros.carbsG * 4 +
+        reviewBrief.mealPrescription.macros.fatsG * 9,
+      proteinG: reviewBrief.mealPrescription.macros.proteinG,
+      carbsG: reviewBrief.mealPrescription.macros.carbsG,
+      fatsG: reviewBrief.mealPrescription.macros.fatsG,
+    };
+    const nutritionSummary = summarizeReportNutrition(mealLog, targetNutrition);
+    const reportWithNutrition = {
+      ...normalizedReport,
+      mealLog: nutritionSummary.mealLog,
+      nutritionTotals: nutritionSummary.nutritionTotals,
+      nutritionGap: nutritionSummary.nutritionGap,
+      nutritionWarnings: nutritionSummary.nutritionWarnings,
+    };
     if (!normalizedReport.completed) {
       const draftReport = {
         id: uid("report"),
@@ -35,7 +65,7 @@ export async function POST(request: Request) {
         summary: "",
         dailyReviewMarkdown: undefined,
         nextDayDecision: undefined,
-        ...normalizedReport,
+        ...reportWithNutrition,
       };
       const saved = await repository.saveSessionReport(draftReport);
       const proposals = await repository.listPlanAdjustments(3);
@@ -52,26 +82,14 @@ export async function POST(request: Request) {
       });
     }
 
-    const snapshot = await repository.getDashboardSnapshot();
-    const planSnapshot = await repository.findPlanSnapshotByDate(parsed.date);
-    const reviewBrief =
-      planSnapshot
-        ? buildDailyBriefFromSnapshot(planSnapshot)
-        : buildTodayAutofillBrief(
-            parsed.date,
-            snapshot.profile,
-            snapshot.plan,
-            snapshot.templates,
-            snapshot.recentReports,
-          );
     const previewReport = {
       id: "preview",
       createdAt: new Date().toISOString(),
       summary: "",
-      ...normalizedReport,
+      ...reportWithNutrition,
     };
     const nextDayDecision = buildNextDayDecision(previewReport, snapshot.plan);
-    const fallbackReview = buildPreferredDailyReviewMarkdown({
+    const fallbackReview = buildStrictDailyReviewMarkdown({
       report: {
         ...previewReport,
         nextDayDecision,

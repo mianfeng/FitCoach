@@ -27,6 +27,11 @@ alter table if exists session_reports add column if not exists sleep_hours numer
 alter table if exists session_reports add column if not exists fatigue integer;
 alter table if exists session_reports add column if not exists completed boolean;
 alter table if exists session_reports add column if not exists training_readiness text;
+alter table if exists session_reports add column if not exists estimated_kcal numeric;
+alter table if exists session_reports add column if not exists estimated_protein_g numeric;
+alter table if exists session_reports add column if not exists estimated_carbs_g numeric;
+alter table if exists session_reports add column if not exists estimated_fats_g numeric;
+alter table if exists session_reports add column if not exists nutrition_warnings text[] not null default '{}';
 
 create table if not exists plan_adjustments (
   id text primary key,
@@ -79,6 +84,13 @@ create table if not exists session_report_meals (
   post_workout_source text
 );
 
+alter table if exists session_report_meals add column if not exists parsed_items jsonb not null default '[]'::jsonb;
+alter table if exists session_report_meals add column if not exists estimated_kcal numeric;
+alter table if exists session_report_meals add column if not exists estimated_protein_g numeric;
+alter table if exists session_report_meals add column if not exists estimated_carbs_g numeric;
+alter table if exists session_report_meals add column if not exists estimated_fats_g numeric;
+alter table if exists session_report_meals add column if not exists analysis_warnings text[] not null default '{}';
+
 create table if not exists knowledge_docs (
   id text primary key,
   title text not null,
@@ -107,3 +119,15 @@ create index if not exists idx_session_report_exercises_report_id on session_rep
 create index if not exists idx_session_report_meals_report_id on session_report_meals (report_id, sort_order);
 create index if not exists idx_plan_snapshots_date on plan_snapshots ((snapshot->>'date'));
 create index if not exists idx_knowledge_chunks_title on knowledge_chunks using gin (to_tsvector('simple', title || ' ' || content));
+
+alter table if exists public.coach_state enable row level security;
+alter table if exists public.daily_briefs enable row level security;
+alter table if exists public.session_reports enable row level security;
+alter table if exists public.session_report_exercises enable row level security;
+alter table if exists public.session_report_meals enable row level security;
+alter table if exists public.plan_adjustments enable row level security;
+alter table if exists public.memory_summaries enable row level security;
+alter table if exists public.plan_snapshots enable row level security;
+alter table if exists public.chat_messages enable row level security;
+alter table if exists public.knowledge_docs enable row level security;
+alter table if exists public.knowledge_chunks enable row level security;

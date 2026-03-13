@@ -18,6 +18,7 @@ import type {
   PlanSnapshot,
   PlanAdjustmentProposal,
   PlanSetupInput,
+  ParsedMealItem,
   SessionReport,
   WorkoutTemplate,
 } from "@/lib/types";
@@ -49,6 +50,11 @@ type ReportRow = {
   fatigue?: number | null;
   completed?: boolean | null;
   training_readiness?: string | null;
+  estimated_kcal?: number | null;
+  estimated_protein_g?: number | null;
+  estimated_carbs_g?: number | null;
+  estimated_fats_g?: number | null;
+  nutrition_warnings?: string[] | null;
   created_at?: string;
 };
 
@@ -77,6 +83,12 @@ type ReportMealRow = {
   adherence: "on_plan" | "adjusted" | "missed";
   deviation_note?: string | null;
   post_workout_source?: "dedicated" | "lunch" | "dinner" | null;
+  parsed_items?: ParsedMealItem[] | null;
+  estimated_kcal?: number | null;
+  estimated_protein_g?: number | null;
+  estimated_carbs_g?: number | null;
+  estimated_fats_g?: number | null;
+  analysis_warnings?: string[] | null;
 };
 
 type ProposalRow = {
@@ -186,6 +198,17 @@ function normalizeReportRow(row: ReportRow) {
     sleepHours: row.report.sleepHours ?? Number(row.sleep_hours ?? 0),
     fatigue: row.report.fatigue ?? Number(row.fatigue ?? 0),
     completed: row.report.completed ?? row.completed ?? true,
+    nutritionTotals:
+      row.report.nutritionTotals ??
+      (row.estimated_kcal != null && row.estimated_protein_g != null && row.estimated_carbs_g != null && row.estimated_fats_g != null
+        ? {
+            calories: Number(row.estimated_kcal),
+            proteinG: Number(row.estimated_protein_g),
+            carbsG: Number(row.estimated_carbs_g),
+            fatsG: Number(row.estimated_fats_g),
+          }
+        : undefined),
+    nutritionWarnings: row.report.nutritionWarnings ?? row.nutrition_warnings ?? undefined,
     createdAt: row.report.createdAt ?? row.created_at ?? new Date().toISOString(),
   });
 }
@@ -223,6 +246,20 @@ function buildMealLogFromRows(rows: ReportMealRow[] | undefined) {
       content: row.content ?? "",
       adherence: row.adherence ?? "adjusted",
       deviationNote: row.deviation_note ?? "",
+      parsedItems: row.parsed_items ?? [],
+      nutritionEstimate:
+        row.estimated_kcal != null &&
+        row.estimated_protein_g != null &&
+        row.estimated_carbs_g != null &&
+        row.estimated_fats_g != null
+          ? {
+              calories: Number(row.estimated_kcal),
+              proteinG: Number(row.estimated_protein_g),
+              carbsG: Number(row.estimated_carbs_g),
+              fatsG: Number(row.estimated_fats_g),
+            }
+          : undefined,
+      analysisWarnings: row.analysis_warnings ?? [],
     };
     if (row.post_workout_source) {
       mealLog.postWorkoutSource = row.post_workout_source;
@@ -275,6 +312,12 @@ function toMealRows(report: SessionReport): ReportMealRow[] {
     adherence: mealLog[slot].adherence,
     deviation_note: mealLog[slot].deviationNote ?? null,
     post_workout_source: slot === "postWorkout" ? mealLog.postWorkoutSource : null,
+    parsed_items: mealLog[slot].parsedItems ?? [],
+    estimated_kcal: mealLog[slot].nutritionEstimate?.calories ?? null,
+    estimated_protein_g: mealLog[slot].nutritionEstimate?.proteinG ?? null,
+    estimated_carbs_g: mealLog[slot].nutritionEstimate?.carbsG ?? null,
+    estimated_fats_g: mealLog[slot].nutritionEstimate?.fatsG ?? null,
+    analysis_warnings: mealLog[slot].analysisWarnings ?? [],
   }));
 }
 
@@ -741,6 +784,11 @@ function createSupabaseRepository(): Repository {
         fatigue: resolvedReport.fatigue,
         completed: resolvedReport.completed,
         training_readiness: resolvedReport.nextDayDecision?.trainingReadiness ?? null,
+        estimated_kcal: resolvedReport.nutritionTotals?.calories ?? null,
+        estimated_protein_g: resolvedReport.nutritionTotals?.proteinG ?? null,
+        estimated_carbs_g: resolvedReport.nutritionTotals?.carbsG ?? null,
+        estimated_fats_g: resolvedReport.nutritionTotals?.fatsG ?? null,
+        nutrition_warnings: resolvedReport.nutritionWarnings ?? [],
       });
       if (error) {
         throw error;

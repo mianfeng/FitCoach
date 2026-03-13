@@ -4,7 +4,7 @@ import {
   buildChatContextBundle,
   buildHistoryBasis,
   buildKnowledgeBasisFromChunks,
-  buildNaturalFallbackCoachAnswer,
+  buildStructuredCoachFallbackAnswer,
 } from "@/lib/server/domain";
 import { generateGeminiCoachReply } from "@/lib/server/gemini";
 import { getRepository } from "@/lib/server/repository";
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     await repository.saveChatMessage(userMessage);
 
     const aiText = await generateGeminiCoachReply({ message, context, basis });
-    const answer = aiText ?? buildNaturalFallbackCoachAnswer(message, context, basis);
+    const answer = aiText ?? buildStructuredCoachFallbackAnswer(message, context, basis);
 
     const assistantMessage: ChatMessage = {
       id: uid("chat"),

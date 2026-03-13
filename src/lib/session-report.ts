@@ -75,6 +75,14 @@ function toStructuredEntry(value: string | undefined) {
     content,
     adherence: content ? "adjusted" : "missed",
     deviationNote: "",
+    parsedItems: [],
+    nutritionEstimate: {
+      calories: 0,
+      proteinG: 0,
+      carbsG: 0,
+      fatsG: 0,
+    },
+    analysisWarnings: [],
   } satisfies MealLogEntry;
 }
 
@@ -84,6 +92,9 @@ function normalizeMealEntry(value: MealLogEntry | string | undefined) {
       content: value.content ?? "",
       adherence: value.adherence,
       deviationNote: value.deviationNote ?? "",
+      parsedItems: value.parsedItems ?? [],
+      nutritionEstimate: value.nutritionEstimate,
+      analysisWarnings: value.analysisWarnings ?? [],
     } satisfies MealLogEntry;
   }
 
@@ -120,6 +131,7 @@ export function buildMealLogForSubmit(mealLog: MealLog): MealLog {
   return {
     ...mealLog,
     postWorkout: {
+      ...mirrored,
       content: mirrored.content,
       adherence: mirrored.adherence,
       deviationNote:

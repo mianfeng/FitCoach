@@ -216,10 +216,36 @@ export interface MealLog {
   postWorkoutSource: PostWorkoutSource;
 }
 
+export interface NutritionEstimate {
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatsG: number;
+}
+
+export interface ParsedMealItem {
+  name: string;
+  sourceText: string;
+  amount: number;
+  unit: string;
+  grams?: number;
+  milliliters?: number;
+  quantitySource: "explicit" | "default";
+  category: string;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatsG: number;
+  note?: string;
+}
+
 export interface MealLogEntry {
   content: string;
   adherence: MealAdherenceStatus;
   deviationNote?: string;
+  parsedItems?: ParsedMealItem[];
+  nutritionEstimate?: NutritionEstimate;
+  analysisWarnings?: string[];
 }
 
 export interface NextDayDecision {
@@ -247,6 +273,9 @@ export interface SessionReport {
   completed: boolean;
   summary?: string;
   nextDayDecision?: NextDayDecision;
+  nutritionTotals?: NutritionEstimate;
+  nutritionGap?: NutritionEstimate;
+  nutritionWarnings?: string[];
   createdAt: string;
 }
 
@@ -314,6 +343,9 @@ export interface ChatContextBundle {
   activePlanSummary: string;
   recentReportSummary: string;
   latestReportSummary: string;
+  currentDate: string;
+  latestReportDate?: string;
+  latestReportIsToday: boolean;
   retrievedKnowledge: KnowledgeChunk[];
   recentMessages: ChatMessage[];
 }

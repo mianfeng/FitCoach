@@ -355,6 +355,72 @@ export function describeTrainingReadiness(
   return "进入减载";
 }
 
+function buildLatestReportSummary(report: SessionReport | null | undefined) {
+  if (!report) {
+    return "今天还没有可分析的日报记录。";
+  }
+
+  const mealLog = normalizeMealLog(report.mealLog);
+  const mealSummary = summarizeMealAdherence(mealLog);
+  const filledMealCount = countFilledMealSlots(mealLog);
+  const performedCount = getPerformedExerciseCount(report);
+  const totalExerciseCount = report.exerciseResults?.length ?? 0;
+  const averageRpe = averageReportRpe(report);
+  const droppedSetCount = countDroppedSets(report);
+
+  return [
+    `${report.date}${report.completed ? " 已完成" : " 草稿"}，${report.performedDay === "rest" ? "休息日" : `${report.performedDay} 日`}。`,
+    `恢复数据：体重 ${report.bodyWeightKg} kg，睡眠 ${report.sleepHours} h，疲劳 ${report.fatigue}/10。`,
+    `饮食记录：${describeMealExecution({ ...report, mealLog })}。`,
+    report.performedDay === "rest"
+      ? "训练记录：今天是休息日，没有训练动作需要完成。"
+      : `训练记录：动作完成 ${performedCount}/${totalExerciseCount}，平均 RPE ${averageRpe.toFixed(1)}，掉组 ${droppedSetCount} 次。`,
+    report.trainingReportText?.trim() ? `主观备注：${report.trainingReportText}` : "主观备注：暂无额外训练备注。",
+    filledMealCount < 5 || mealSummary.missed > 0 ? "注意：今天的饮食记录还不完整，判断时要把缺失餐次算进不确定性。" : "注意：今天的饮食记录相对完整，可以直接基于现有数据判断执行质量。",
+  ].join(" ");
+}
+
+function resolveDailyReviewRating(params: {
+  report: SessionReport;
+  mealSummary: ReturnType<typeof summarizeMealAdherence>;
+  nextDayDecision: NonNullable<SessionReport["nextDayDecision"]>;
+}) {
+  const { report, mealSummary, nextDayDecision } = params;
+
+  if (!report.completed) {
+    return {
+      badge: "🟡 待补全",
+      note: "这还是草稿，当前只能看到局部执行情况，先别把它当成当天最终质量。",
+    };
+  }
+
+  if (nextDayDecision.trainingReadiness === "deload" || report.fatigue >= 8 || report.sleepHours < 6) {
+    return {
+      badge: "🟠 需要修正",
+      note: "今天的恢复或训练压力已经碰到边界，重点不是继续加码，而是先把恢复和执行质量拉回稳定区间。",
+    };
+  }
+
+  if (mealSummary.missed >= 2) {
+    return {
+      badge: "🟡 恢复合格，饮食掉线",
+      note: "恢复指标不差，但餐次完整性明显不够。今天的问题不在训练冲没冲，而在该吃的没有完整落地。",
+    };
+  }
+
+  if (mealSummary.adjusted >= 2 || nextDayDecision.trainingReadiness === "hold") {
+    return {
+      badge: "🟡 基本合格",
+      note: "整体还在可控范围，但训练刺激或饮食执行有波动，离高质量完成还差最后一层稳定性。",
+    };
+  }
+
+  return {
+    badge: "🟢 完成质量高",
+    note: "恢复、训练和饮食基本对齐，当天执行质量是扎实的，可以按计划继续推进。",
+  };
+}
+
 export function buildNextDayDecision(report: SessionReport, plan: LongTermPlan) {
   const mealLog = normalizeMealLog(report.mealLog);
   const mealSummary = summarizeMealAdherence(mealLog);
@@ -662,6 +728,72 @@ export function buildDailyReviewMarkdown(params: {
   ].join("\n");
 }
 
+export function buildPreferredDailyReviewMarkdown(params: {
+  report: SessionReport;
+  targetMacros: MealPrescription["macros"];
+  nextDayDecision?: SessionReport["nextDayDecision"];
+}) {
+  const { report, targetMacros } = params;
+  const averageRpe = averageReportRpe(report);
+  const performedCount = getPerformedExerciseCount(report);
+  const totalExerciseCount = report.exerciseResults?.length ?? 0;
+  const droppedSetCount = countDroppedSets(report);
+  const mealLog = normalizeMealLog(report.mealLog);
+  const mealSummary = summarizeMealAdherence(mealLog);
+  const filledMealCount = countFilledMealSlots(mealLog);
+  const nextDayDecision =
+    params.nextDayDecision ??
+    report.nextDayDecision ?? {
+      trainingReadiness: "hold" as const,
+      nutritionFocus: "优先把明天的训练前后餐重新对齐到计划。",
+      recoveryFocus: "先把睡眠和补水拉回正常水平。",
+      priorityNotes: ["当前未生成结构化次日决策，先以恢复优先。"],
+    };
+  const rating = resolveDailyReviewRating({
+    report,
+    mealSummary,
+    nextDayDecision,
+  });
+
+  let overloadStatus = "达标";
+  let overloadComment = "训练完成度和恢复指标仍在可以继续推进的区间。";
+
+  if (report.performedDay === "rest") {
+    overloadStatus = "休息日";
+    overloadComment = "今天没有训练任务，重点不是刷刺激，而是看恢复状态和饮食有没有真正落地。";
+  } else if (nextDayDecision.trainingReadiness === "deload") {
+    overloadStatus = "需要减载";
+    overloadComment = "疲劳、主观强度或掉组信号已经越界，下一次更应该先减压稳住质量。";
+  } else if (nextDayDecision.trainingReadiness === "hold" || !report.completed) {
+    overloadStatus = "维持推进";
+    overloadComment = "当前更适合先把动作质量、恢复和饮食稳定住，而不是立刻继续加压。";
+  }
+
+  const targetKcal = targetMacros.proteinG * 4 + targetMacros.carbsG * 4 + targetMacros.fatsG * 9;
+
+  return [
+    "1. 📊 数据核算",
+    "",
+    `- 恢复指标：体重 ${report.bodyWeightKg} kg / 睡眠 ${report.sleepHours} h / 疲劳 ${report.fatigue}/10`,
+    `- 目标宏量：约 ${targetKcal} kcal / 蛋白质 ${targetMacros.proteinG} g / 碳水 ${targetMacros.carbsG} g / 脂肪 ${targetMacros.fatsG} g`,
+    `- 饮食记录：${describeMealExecution({ ...report, mealLog })}`,
+    `- 缺口判断：今天共记录 ${filledMealCount}/5 餐${mealSummary.missed > 0 ? "，目前更像记录未完成，不适合直接判定为完全达标。" : "，可以按已记录内容直接判断执行质量。"}`,
+    "",
+    "2. 🏋️ 训练评估",
+    "",
+    `- 超负荷状态：${overloadStatus}`,
+    report.performedDay === "rest"
+      ? `- 简要评价：${overloadComment}`
+      : `- 简要评价：${overloadComment} 动作完成 ${performedCount}/${totalExerciseCount}，平均 RPE ${averageRpe.toFixed(1)}，掉组 ${droppedSetCount} 次。`,
+    "",
+    "3. 🎯 质量评级",
+    "",
+    `- ${rating.badge}：${rating.note}`,
+    `- 明日重点：训练准备度 ${describeTrainingReadiness(nextDayDecision.trainingReadiness)}；饮食上 ${nextDayDecision.nutritionFocus}；恢复上 ${nextDayDecision.recoveryFocus}`,
+    `- 行动优先级：${nextDayDecision.priorityNotes.join(" / ")}`,
+  ].join("\n");
+}
+
 export function buildRecentReportSummary(reports: SessionReport[]) {
   if (!reports.length) {
     return "暂无历史汇报，默认按当前正式计划执行。";
@@ -681,6 +813,23 @@ export function buildRecentReportSummary(reports: SessionReport[]) {
   return `最近 ${latest.length} 次记录体重为 ${weightTrend}；疲劳趋势 ${fatigueTrend}；最新训练摘要 ${latestTraining}。`;
 }
 
+function buildChatReportSummary(reports: SessionReport[]) {
+  if (!reports.length) {
+    return "最近还没有训练或饮食回填记录，当前只能按计划本身做判断。";
+  }
+
+  const latest = sortReportsDesc(reports).slice(0, 3);
+  const latestReport = latest[0];
+  const weightTrend = latest.map((item) => `${item.date} ${item.bodyWeightKg}kg`).join(" / ");
+  const fatigueTrend = latest.map((item) => `${item.date} ${item.fatigue}/10`).join(" / ");
+
+  return [
+    `最新记录：${buildLatestReportSummary(latestReport)}`,
+    `近 ${latest.length} 次体重趋势：${weightTrend}。`,
+    `近 ${latest.length} 次疲劳趋势：${fatigueTrend}。`,
+  ].join(" ");
+}
+
 export function buildChatContextBundle(params: {
   persona: ChatContextBundle["persona"];
   plan: LongTermPlan;
@@ -697,7 +846,8 @@ export function buildChatContextBundle(params: {
     activePlanSummary: `当前阶段 ${weeklyPhase.label}，今日顺位 ${getNextScheduledDay(plan, reports)}，恢复模式 ${
       plan.manualOverrides?.recoveryMode ?? "standard"
     }。`,
-    recentReportSummary: buildRecentReportSummary(reports),
+    recentReportSummary: buildChatReportSummary(reports),
+    latestReportSummary: buildLatestReportSummary(sortReportsDesc(reports)[0]),
     retrievedKnowledge,
     recentMessages: messages.slice(-6),
   };

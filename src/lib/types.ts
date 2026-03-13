@@ -313,6 +313,7 @@ export interface ChatContextBundle {
   activeGoal: string;
   activePlanSummary: string;
   recentReportSummary: string;
+  latestReportSummary: string;
   retrievedKnowledge: KnowledgeChunk[];
   recentMessages: ChatMessage[];
 }

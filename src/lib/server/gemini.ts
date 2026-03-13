@@ -11,13 +11,12 @@ function stripCodeFence(input: string) {
   return input.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
 }
 
-function hasStrictDailyReviewShape(input: string) {
+function hasPreferredDailyReviewShape(input: string) {
   const normalized = stripCodeFence(input);
   return (
-    normalized.includes("1. 数据摘要") &&
-    normalized.includes("2. 训练评估") &&
-    normalized.includes("3. 饮食执行") &&
-    normalized.includes("4. 次日决策")
+    normalized.includes("1. 📊 数据核算") &&
+    normalized.includes("2. 🏋️ 训练评估") &&
+    normalized.includes("3. 🎯 质量评级")
   );
 }
 
@@ -47,18 +46,23 @@ export async function generateGeminiCoachReply(params: {
     "Reply in Simplified Chinese.",
     "Sound like a knowledgeable training friend: grounded, experienced, candid, and easy to talk to.",
     "Do not sound like customer support, a rigid template, or a motivational slogan generator.",
+    "Use the handbook as a reference when useful, but do not depend on it mechanically and do not pretend it is the only authority.",
     "You can go deep on training theory, recovery logic, nutrition logic, tradeoffs, and likely mechanisms when that helps the user think clearly.",
-    "Use handbook-derived knowledge when it is relevant, but do not depend on it mechanically and do not pretend it is the only authority.",
     "If evidence is thin, say so plainly. Avoid hallucinations.",
     "Do not rewrite the user's formal long-term plan on your own. Give advice, options, cautions, and reasoning.",
-    "Do not force numbered sections unless structure genuinely helps. Natural prose is preferred.",
-    "Weave evidence naturally: mention when something comes from retrieved knowledge, recent history, or your own inference, but do not mechanically print a fixed template every time.",
+    "Natural prose is preferred. Do not force numbered sections unless structure genuinely helps.",
+    "When the user asks about today, today's diet, today's training, today's recovery, or asks '怎么样', you must analyze the latest recorded report first.",
+    "For those questions, explicitly use the available numbers before giving judgment: body weight, sleep, fatigue, meal completion, training completion, notes.",
+    "If the current report already gives enough signal, do not drift into generic lean-bulk theory and do not tell the user to generate today's prescription first.",
+    "Only ask a follow-up question when the current data is truly insufficient, and say exactly what is missing.",
+    "If the user asks only about diet completion, focus on adherence, completeness, likely gap, and the next correction. Keep the answer on-topic.",
     "",
     `Persona name: ${params.context.persona.name}`,
     `Persona voice: ${params.context.persona.voice}`,
     `Persona mission: ${params.context.persona.mission}`,
     `Current goal: ${params.context.activeGoal}`,
     `Plan summary: ${params.context.activePlanSummary}`,
+    `Latest report detail: ${params.context.latestReportSummary}`,
     `Recent execution summary: ${params.context.recentReportSummary}`,
     "Relevant knowledge:",
     ...knowledgeLines,
@@ -71,10 +75,11 @@ export async function generateGeminiCoachReply(params: {
     "",
     "Answer requirements:",
     "- Start with the direct answer or recommendation.",
-    "- Then explain the reasoning in natural language.",
-    "- If useful, unpack the training theory instead of stopping at a short conclusion.",
-    "- Keep the tone human and informed, not ceremonial.",
-    "- If the question should really be answered by generating today's prescription, say that explicitly.",
+    "- If current data exists, judge that data first instead of restarting from abstract goals.",
+    "- Pull in theory only when it sharpens the judgment, not as filler.",
+    "- Mention which part is based on recorded data and which part is inference when that distinction matters.",
+    "- Keep the tone human, specific, and slightly sharp when needed.",
+    "- If the question should really be answered by generating today's prescription, say that only when the existing data cannot answer the question.",
   ].join("\n");
 
   const result = await model.generateContent(prompt);
@@ -101,10 +106,14 @@ export async function generateGeminiDailyReview(params: {
   const prompt = [
     "You are FitCoach's daily review editor.",
     "Reply in Simplified Chinese.",
-    "Your job is not to invent a new structure. You must polish the existing draft review only.",
-    "You must preserve the four numbered headings exactly: 1. 数据摘要 / 2. 训练评估 / 3. 饮食执行 / 4. 次日决策.",
-    "Keep the markdown structure stable. Do not add extra sections and do not add code fences.",
-    "Do not change the final training-readiness conclusion. Only improve phrasing so it sounds like an experienced coach.",
+    "You must polish the existing draft review only. Do not invent a new outline.",
+    "You must preserve these three headings exactly: 1. 📊 数据核算 / 2. 🏋️ 训练评估 / 3. 🎯 质量评级.",
+    "Keep markdown stable. Do not add extra sections and do not add code fences.",
+    "Do not turn the review into a bureaucratic summary. It should read like a sharp coach commenting on real execution quality.",
+    "Section 1 must talk about the recorded numbers and whether today's intake record is complete enough to support a conclusion.",
+    "Section 2 must stay concrete. If it is a rest day, do not fabricate training stress. If it is a training day, mention completion, RPE, and dropped sets when useful.",
+    "Section 3 must contain one explicit quality verdict and then the tomorrow focus.",
+    "Do not change the final training-readiness conclusion. Improve phrasing and sharpness only.",
     "",
     `Plan label: ${params.planLabel}`,
     `Workout title: ${params.workoutTitle}`,
@@ -128,5 +137,5 @@ export async function generateGeminiDailyReview(params: {
 
   const result = await model.generateContent(prompt);
   const text = stripCodeFence(result.response.text());
-  return hasStrictDailyReviewShape(text) ? text : null;
+  return hasPreferredDailyReviewShape(text) ? text : null;
 }

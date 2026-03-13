@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { defaultPlan, defaultProfile, defaultTemplates } from "@/lib/seed";
-import { buildDailyBrief, buildNextDayDecision, buildSessionSummary, getNextScheduledDay } from "@/lib/server/domain";
+import {
+  buildChatContextBundle,
+  buildDailyBrief,
+  buildNextDayDecision,
+  buildPreferredDailyReviewMarkdown,
+  buildSessionSummary,
+  getNextScheduledDay,
+} from "@/lib/server/domain";
 import type { SessionReport } from "@/lib/types";
 
 describe("training scheduler", () => {
@@ -160,5 +167,92 @@ describe("adjustment proposal", () => {
     const decision = buildNextDayDecision(report, defaultPlan);
     expect(decision.trainingReadiness).toBe("deload");
     expect(decision.nutritionFocus).toContain("补齐");
+  });
+});
+
+describe("daily review presentation", () => {
+  it("builds the preferred three-section review format", () => {
+    const report: SessionReport = {
+      id: "review-1",
+      reportVersion: 2,
+      date: "2026-03-13",
+      performedDay: "rest",
+      exerciseResults: [],
+      bodyWeightKg: 61,
+      sleepHours: 7,
+      fatigue: 1,
+      mealLog: {
+        breakfast: { content: "鸡蛋 牛奶 面包", adherence: "on_plan" },
+        lunch: { content: "米饭 鸡胸", adherence: "adjusted", deviationNote: "外食偏油" },
+        dinner: { content: "", adherence: "missed" },
+        preWorkout: { content: "", adherence: "missed" },
+        postWorkout: { content: "", adherence: "missed" },
+        postWorkoutSource: "dedicated",
+      },
+      completed: true,
+      nextDayDecision: {
+        trainingReadiness: "push",
+        nutritionFocus: "先补齐缺失餐次，再看总蛋白和碳水。",
+        recoveryFocus: "保持睡眠和补水。",
+        priorityNotes: ["先把餐次完整性拉回来"],
+      },
+      createdAt: "2026-03-13T10:00:00.000Z",
+    };
+
+    const review = buildPreferredDailyReviewMarkdown({
+      report,
+      targetMacros: { proteinG: 108, carbsG: 180, fatsG: 54 },
+      nextDayDecision: report.nextDayDecision,
+    });
+
+    expect(review).toContain("1. 📊 数据核算");
+    expect(review).toContain("2. 🏋️ 训练评估");
+    expect(review).toContain("3. 🎯 质量评级");
+    expect(review).toContain("缺口判断");
+    expect(review).toContain("明日重点");
+  });
+});
+
+describe("chat context bundle", () => {
+  it("includes latest report detail for coach analysis", () => {
+    const report: SessionReport = {
+      id: "chat-1",
+      reportVersion: 2,
+      date: "2026-03-13",
+      performedDay: "rest",
+      exerciseResults: [],
+      bodyWeightKg: 61,
+      sleepHours: 7,
+      fatigue: 1,
+      mealLog: {
+        breakfast: { content: "鸡蛋 牛奶 面包", adherence: "on_plan" },
+        lunch: { content: "米饭 鸡胸", adherence: "adjusted", deviationNote: "外食偏油" },
+        dinner: { content: "", adherence: "missed" },
+        preWorkout: { content: "", adherence: "missed" },
+        postWorkout: { content: "", adherence: "missed" },
+        postWorkoutSource: "dedicated",
+      },
+      trainingReportText: "今天只回填了早餐和午餐。",
+      completed: true,
+      createdAt: "2026-03-13T10:00:00.000Z",
+    };
+
+    const bundle = buildChatContextBundle({
+      persona: {
+        id: "coach",
+        name: "Coach",
+        voice: "direct",
+        mission: "keep the user progressing",
+        corePrinciples: [],
+      },
+      plan: defaultPlan,
+      reports: [report],
+      retrievedKnowledge: [],
+      messages: [],
+    });
+
+    expect(bundle.latestReportSummary).toContain("体重 61 kg");
+    expect(bundle.latestReportSummary).toContain("饮食记录");
+    expect(bundle.recentReportSummary).toContain("最新记录");
   });
 });

@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import {
   buildDailyBriefFromSnapshot,
   buildNextDayDecision,
-  buildDailyReviewMarkdown,
+  buildPreferredDailyReviewMarkdown,
   buildTodayAutofillBrief,
 } from "@/lib/server/domain";
 import { generateGeminiDailyReview } from "@/lib/server/gemini";
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       ...normalizedReport,
     };
     const nextDayDecision = buildNextDayDecision(previewReport, snapshot.plan);
-    const fallbackReview = buildDailyReviewMarkdown({
+    const fallbackReview = buildPreferredDailyReviewMarkdown({
       report: {
         ...previewReport,
         nextDayDecision,

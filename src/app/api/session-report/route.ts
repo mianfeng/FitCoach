@@ -18,7 +18,6 @@ export async function POST(request: Request) {
     const payload = await request.json();
     const parsed = sessionReportSchema.parse(payload);
     const repository = await getRepository();
-    const snapshot = await repository.getDashboardSnapshot();
     const mealLog = normalizeMealLog(parsed.mealLog);
     const normalizedReport = {
       ...parsed,
@@ -29,6 +28,31 @@ export async function POST(request: Request) {
       painNotes: parsed.painNotes?.trim() || undefined,
       recoveryNote: parsed.recoveryNote?.trim() || undefined,
     };
+    if (!normalizedReport.completed) {
+      const draftReport = {
+        id: uid("report"),
+        createdAt: new Date().toISOString(),
+        summary: "",
+        dailyReviewMarkdown: undefined,
+        nextDayDecision: undefined,
+        ...normalizedReport,
+      };
+      const saved = await repository.saveSessionReport(draftReport);
+      const proposals = await repository.listPlanAdjustments(3);
+      const summaries = await repository.listMemorySummaries(3);
+      revalidatePath("/");
+      revalidatePath("/plan");
+      revalidatePath("/history");
+      return NextResponse.json({
+        report: saved,
+        proposals,
+        summaries,
+        review: null,
+        submissionMode: "draft",
+      });
+    }
+
+    const snapshot = await repository.getDashboardSnapshot();
     const planSnapshot = await repository.findPlanSnapshotByDate(parsed.date);
     const reviewBrief =
       planSnapshot
@@ -81,7 +105,7 @@ export async function POST(request: Request) {
     revalidatePath("/");
     revalidatePath("/plan");
     revalidatePath("/history");
-    return NextResponse.json({ report: saved, proposals, summaries, review });
+    return NextResponse.json({ report: saved, proposals, summaries, review, submissionMode: "completed" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to save report";
     return NextResponse.json({ error: message }, { status: 400 });

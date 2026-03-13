@@ -69,6 +69,29 @@ describe("session report compatibility", () => {
     ).toThrow("训练日必须提交动作执行记录。");
   });
 
+  it("accepts a training-day draft without exercise results", () => {
+    const parsed = sessionReportSchema.parse({
+      reportVersion: 2,
+      date: "2026-03-13",
+      performedDay: "B",
+      bodyWeightKg: 60,
+      sleepHours: 7,
+      fatigue: 5,
+      trainingReportText: "鍏堣鏃╅锛屾櫄涓婂啀琛ュ叏璁粌",
+      mealLog: {
+        breakfast: { content: "楦¤泲 鐗涘ザ", adherence: "on_plan" },
+        lunch: { content: "", adherence: "missed" },
+        dinner: { content: "", adherence: "missed" },
+        preWorkout: { content: "", adherence: "missed" },
+        postWorkout: { content: "", adherence: "missed" },
+        postWorkoutSource: "dedicated",
+      },
+      completed: false,
+    });
+
+    expect(parsed.completed).toBe(false);
+  });
+
   it("keeps legacy stored reports readable", () => {
     const report = normalizeStoredSessionReport({
       id: "legacy-1",

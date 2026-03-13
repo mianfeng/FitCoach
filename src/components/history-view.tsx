@@ -37,6 +37,11 @@ function renderStructuredReportBody(report: SessionReport) {
 
   return (
     <div className="mt-3 space-y-3">
+      {!report.completed ? (
+        <div className="rounded-[18px] border border-[#e5d6ae] bg-[#fff6df] px-4 py-3 text-sm leading-6 text-[#5a4620]">
+          这是一条草稿记录，只保留当天已填的动作、餐次和恢复信息；正式点评、次日决策和记忆摘要会在完成日报后生成。
+        </div>
+      ) : null}
       <p className="text-sm text-black/62">
         体重 {report.bodyWeightKg}kg / 睡眠 {report.sleepHours}h / 疲劳 {report.fatigue}/10
       </p>
@@ -122,6 +127,11 @@ function renderReportBody(report: SessionReport) {
 
     return (
       <div className="mt-3 space-y-3">
+        {!report.completed ? (
+          <div className="rounded-[18px] border border-[#e5d6ae] bg-[#fff6df] px-4 py-3 text-sm leading-6 text-[#5a4620]">
+            这条历史记录仍是草稿，尚未生成正式点评。
+          </div>
+        ) : null}
         <p className="text-sm text-black/62">
           体重 {report.bodyWeightKg}kg / 睡眠 {report.sleepHours}h / 疲劳 {report.fatigue}/10
         </p>
@@ -203,8 +213,15 @@ export function HistoryView({ snapshot }: HistoryViewProps) {
                       {report.performedDay === "rest" ? "休息日" : `${report.performedDay} 日`}
                     </div>
                   </div>
-                  <div className="rounded-full bg-[#151811] px-3 py-1 text-xs uppercase tracking-[0.24em] text-white/70">
-                    Fatigue {report.fatigue}
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {!report.completed ? (
+                      <div className="rounded-full bg-[#fff1c7] px-3 py-1 text-xs uppercase tracking-[0.24em] text-[#6d5620]">
+                        Draft
+                      </div>
+                    ) : null}
+                    <div className="rounded-full bg-[#151811] px-3 py-1 text-xs uppercase tracking-[0.24em] text-white/70">
+                      Fatigue {report.fatigue}
+                    </div>
                   </div>
                 </div>
                 {renderReportBody(report)}

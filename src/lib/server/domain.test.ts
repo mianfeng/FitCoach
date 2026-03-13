@@ -9,6 +9,26 @@ describe("training scheduler", () => {
     expect(getNextScheduledDay(defaultPlan, [])).toBe("A");
   });
 
+  it("does not advance after an incomplete draft", () => {
+    const reports: SessionReport[] = [
+      {
+        id: "draft-1",
+        reportVersion: 2,
+        date: "2026-03-12",
+        performedDay: "A",
+        exerciseResults: [],
+        bodyWeightKg: 60,
+        sleepHours: 7.5,
+        dietAdherence: 4,
+        fatigue: 5,
+        completed: false,
+        createdAt: "2026-03-12T10:00:00.000Z",
+      },
+    ];
+
+    expect(getNextScheduledDay(defaultPlan, reports)).toBe("A");
+  });
+
   it("advances to the next day after a completed session", () => {
     const reports: SessionReport[] = [
       {

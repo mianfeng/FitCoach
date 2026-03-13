@@ -223,7 +223,7 @@ const sessionReportV1Schema = sessionReportBaseSchema.extend({
 export const sessionReportSchema = z
   .union([sessionReportV2Schema, sessionReportV1Schema])
   .superRefine((value, ctx) => {
-    if (value.performedDay !== "rest" && (!value.exerciseResults || value.exerciseResults.length === 0)) {
+    if (value.completed && value.performedDay !== "rest" && (!value.exerciseResults || value.exerciseResults.length === 0)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["exerciseResults"],

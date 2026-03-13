@@ -413,8 +413,13 @@ function createMockRepository(): Repository {
       const priorReports = store.recentReports
         .map((item) => normalizeStoredSessionReport(item))
         .filter((item) => item.date !== normalizedReport.date);
-      const { memorySummary, proposals } = buildSessionSummary(normalizedReport, priorReports, store.plan);
       store.recentReports = [normalizedReport, ...priorReports].slice(0, 30);
+      if (!normalizedReport.completed) {
+        store.summaries = store.summaries.filter((item) => item.date !== normalizedReport.date).slice(0, 30);
+        return normalizedReport;
+      }
+
+      const { memorySummary, proposals } = buildSessionSummary(normalizedReport, priorReports, store.plan);
       store.summaries = [memorySummary, ...store.summaries.filter((item) => item.date !== memorySummary.date)].slice(0, 30);
       if (proposals.length) {
         store.proposals = [...proposals, ...store.proposals].slice(0, 20);
@@ -697,7 +702,6 @@ function createSupabaseRepository(): Repository {
       return dedupeByDate(hydrated).slice(0, limit);
     },
     async saveSessionReport(report) {
-      const coachState = await ensureCoachState(supabase);
       let { data: existingReportRows } = await supabase
         .from("session_reports")
         .select("*")
@@ -719,18 +723,12 @@ function createSupabaseRepository(): Repository {
         id: existingReportRows?.[0]?.id ?? report.id,
         mealLog: report.mealLog ? buildMealLogForSubmit(report.mealLog) : undefined,
       });
-      const recentReports = (await this.listSessionReports(10)).filter((item) => item.date !== resolvedReport.date);
-      const { memorySummary, proposals } = buildSessionSummary(resolvedReport, recentReports, coachState.active_plan);
       const { data: existingSummaryRows } = await supabase
         .from("memory_summaries")
         .select("*")
         .eq("summary->>date", resolvedReport.date)
         .order("created_at", { ascending: false })
         .returns<SummaryRow[]>();
-      const resolvedSummary = {
-        ...memorySummary,
-        id: existingSummaryRows?.[0]?.id ?? memorySummary.id,
-      };
 
       const { error } = await supabase.from("session_reports").upsert({
         id: resolvedReport.id,
@@ -766,15 +764,31 @@ function createSupabaseRepository(): Repository {
         }
       }
 
-      await supabase.from("memory_summaries").upsert({
-        id: resolvedSummary.id,
-        summary: resolvedSummary,
-      });
-
       const duplicateReportIds = (existingReportRows ?? []).slice(1).map((row) => row.id);
       if (duplicateReportIds.length) {
         await supabase.from("session_reports").delete().in("id", duplicateReportIds);
       }
+
+      if (!resolvedReport.completed) {
+        const summaryIdsToDelete = (existingSummaryRows ?? []).map((row) => row.id);
+        if (summaryIdsToDelete.length) {
+          await supabase.from("memory_summaries").delete().in("id", summaryIdsToDelete);
+        }
+        return resolvedReport;
+      }
+
+      const coachState = await ensureCoachState(supabase);
+      const recentReports = (await this.listSessionReports(10)).filter((item) => item.date !== resolvedReport.date);
+      const { memorySummary, proposals } = buildSessionSummary(resolvedReport, recentReports, coachState.active_plan);
+      const resolvedSummary = {
+        ...memorySummary,
+        id: existingSummaryRows?.[0]?.id ?? memorySummary.id,
+      };
+
+      await supabase.from("memory_summaries").upsert({
+        id: resolvedSummary.id,
+        summary: resolvedSummary,
+      });
 
       const duplicateSummaryIds = (existingSummaryRows ?? []).slice(1).map((row) => row.id);
       if (duplicateSummaryIds.length) {

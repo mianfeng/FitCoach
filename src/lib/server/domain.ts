@@ -673,8 +673,8 @@ export function buildRecentReportSummary(reports: SessionReport[]) {
   const latestTraining = latest
     .map((item) =>
       item.trainingReportText?.trim()
-        ? `${item.date} ${item.trainingReportText.slice(0, 18)}${item.trainingReportText.length > 18 ? "..." : ""}`
-        : `${item.date} ${item.performedDay}`,
+        ? `${item.date}${item.completed ? "" : " 草稿"} ${item.trainingReportText.slice(0, 18)}${item.trainingReportText.length > 18 ? "..." : ""}`
+        : `${item.date}${item.completed ? "" : " 草稿"} ${item.performedDay}`,
     )
     .join(" / ");
 
@@ -746,7 +746,7 @@ export function buildHistoryBasis(reports: SessionReport[]) {
         type: "history",
         label: `${report.date} ${report.performedDay === "rest" ? "休息日" : `${report.performedDay} 日`}`,
         excerpt: report.trainingReportText?.trim()
-          ? report.trainingReportText.slice(0, 80)
+          ? `${report.completed ? "" : "草稿："}${report.trainingReportText.slice(0, 80)}`
           : `体重 ${report.bodyWeightKg}kg，睡眠 ${report.sleepHours}h，疲劳 ${report.fatigue}/10`,
       }) satisfies KnowledgeBasis,
   );
@@ -765,12 +765,12 @@ export function createReportDraftFromBrief(brief: DailyBrief) {
           (exercise) =>
             ({
               exerciseName: exercise.name,
-              performed: true,
+              performed: false,
               targetSets: exercise.sets,
               targetReps: exercise.reps,
-              actualSets: exercise.sets,
+              actualSets: 0,
               actualReps: exercise.reps,
-              topSetWeightKg: exercise.suggestedWeightKg,
+              topSetWeightKg: undefined,
               rpe: 8,
               droppedSets: false,
             }) satisfies ExerciseResult,
@@ -778,6 +778,6 @@ export function createReportDraftFromBrief(brief: DailyBrief) {
     bodyWeightKg: 60,
     sleepHours: 7.5,
     fatigue: 5,
-    completed: true,
+    completed: false,
   };
 }

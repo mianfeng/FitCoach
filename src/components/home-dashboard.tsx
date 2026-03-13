@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { SectionCard } from "@/components/section-card";
-import { buildMealLogForSubmit, createEmptyMealLog, mealAdherenceLabels, mealSlotLabels } from "@/lib/session-report";
+import { buildMealLogForSubmit, countFilledMealSlots, createEmptyMealLog, mealAdherenceLabels, mealSlotLabels } from "@/lib/session-report";
 import type { ChatMessage, DashboardSnapshot, DailyBrief, ExerciseResult, MealLog, SessionReport } from "@/lib/types";
 
 type ReportDraft = {
@@ -19,7 +19,7 @@ type ReportDraft = {
   fatigue: number;
   painNotes: string;
   recoveryNote: string;
-  completed: true;
+  completed: boolean;
 };
 
 type FeedbackState = {
@@ -32,17 +32,19 @@ type CoachReplyState = {
   content: string;
   basis: ChatMessage["basis"];
   contextSummary?: string;
-  source: "coach" | "review" | "error";
+  source: "coach" | "review" | "draft" | "error";
 };
 
 type StoredReportState = {
   feedback: FeedbackState;
+  panel?: Pick<CoachReplyState, "title" | "content" | "source">;
   review?: Pick<CoachReplyState, "title" | "content" | "source">;
 };
 
 type SessionReportResponse = {
   report: SessionReport;
-  review: string;
+  review: string | null;
+  submissionMode: "draft" | "completed";
 };
 
 type CoachChatResponse = {
@@ -67,6 +69,58 @@ const MEAL_SLOTS: Array<{ key: keyof Omit<MealLog, "postWorkoutSource">; label: 
   { key: "postWorkout", label: "练后餐" },
 ];
 
+function buildDefaultExerciseResults(brief: DailyBrief) {
+  if (brief.isRestDay) {
+    return [] as ExerciseResult[];
+  }
+
+  return brief.workoutPrescription.exercises.map(
+    (exercise) =>
+      ({
+        exerciseName: exercise.name,
+        performed: false,
+        targetSets: exercise.sets,
+        targetReps: exercise.reps,
+        actualSets: 0,
+        actualReps: exercise.reps,
+        topSetWeightKg: undefined,
+        rpe: 8,
+        droppedSets: false,
+        notes: "",
+      }) satisfies ExerciseResult,
+  );
+}
+
+function buildDraftCoachReply(snapshot: DashboardSnapshot, report: SessionReport): CoachReplyState {
+  const mealCount = countFilledMealSlots(report.mealLog);
+  const recordedExercises = (report.exerciseResults ?? []).filter((exercise) => exercise.performed !== false && exercise.actualSets > 0).length;
+  const lines = ["Draft saved. Formal review and next-day decision are deferred until you complete the report."];
+
+  if (mealCount > 0) {
+    lines.push(`Meals logged: ${mealCount}/5. You can keep adding lunch, dinner, and peri-workout meals later today.`);
+  } else {
+    lines.push("You can log breakfast or recovery data now and finish the rest tonight.");
+  }
+
+  if (report.performedDay !== "rest") {
+    lines.push(
+      recordedExercises > 0
+        ? `Exercise entries recorded: ${recordedExercises}. You can continue filling the remaining lifts later.`
+        : "Exercise cards stay in pending state, so the draft will not be treated as a completed workout.",
+    );
+  }
+
+  lines.push("Use Complete Report when you want the final review.");
+
+  return {
+    title: "Today Draft",
+    content: lines.join("\n"),
+    basis: [],
+    contextSummary: snapshot.plan.goal,
+    source: "draft",
+  };
+}
+
 function buildReportDraft(
   brief: DailyBrief,
   snapshot: DashboardSnapshot,
@@ -78,24 +132,9 @@ function buildReportDraft(
     date,
     performedDay: brief.calendarSlot,
     exerciseResults:
-      existingReport?.exerciseResults ??
-      (brief.isRestDay
-        ? []
-        : brief.workoutPrescription.exercises.map(
-            (exercise) =>
-              ({
-                exerciseName: exercise.name,
-                performed: true,
-                targetSets: exercise.sets,
-                targetReps: exercise.reps,
-                actualSets: exercise.sets,
-                actualReps: exercise.reps,
-                topSetWeightKg: exercise.suggestedWeightKg,
-                rpe: 8,
-                droppedSets: false,
-                notes: "",
-              }) satisfies ExerciseResult,
-          )),
+      existingReport?.exerciseResults && existingReport.exerciseResults.length > 0
+        ? existingReport.exerciseResults
+        : buildDefaultExerciseResults(brief),
     mealLog: existingReport?.mealLog ?? createEmptyMealLog(),
     trainingReportText: existingReport?.trainingReportText ?? "",
     bodyWeightKg: existingReport?.bodyWeightKg ?? snapshot.profile.currentWeightKg,
@@ -103,7 +142,7 @@ function buildReportDraft(
     fatigue: existingReport?.fatigue ?? 5,
     painNotes: existingReport?.painNotes ?? "",
     recoveryNote: existingReport?.recoveryNote ?? "",
-    completed: true,
+    completed: existingReport?.completed ?? false,
   };
 }
 
@@ -133,6 +172,10 @@ function buildInitialCoachReply(snapshot: DashboardSnapshot, existingReport?: Se
       contextSummary: snapshot.plan.goal,
       source: "review",
     };
+  }
+
+  if (existingReport && !existingReport.completed) {
+    return buildDraftCoachReply(snapshot, existingReport);
   }
 
   const latestAssistant = [...snapshot.chatMessages].reverse().find((message) => message.role === "assistant");
@@ -173,17 +216,21 @@ export function HomeDashboard({
   const router = useRouter();
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionMode, setSubmissionMode] = useState<"draft" | "completed" | null>(null);
   const [isAsking, startAskTransition] = useTransition();
   const existingReport = snapshot.recentReports.find((item) => item.date === today);
   const [coachInput, setCoachInput] = useState("");
   const [coachReply, setCoachReply] = useState<CoachReplyState>(() => buildInitialCoachReply(snapshot, existingReport));
   const [reportDraft, setReportDraft] = useState(() => buildReportDraft(todayBrief, snapshot, today, existingReport));
+  const [hasExerciseEdits, setHasExerciseEdits] = useState(() => Boolean(existingReport?.exerciseResults?.length));
+  const isSubmitting = submissionMode !== null;
+  const setIsSubmitting = (value: boolean) => setSubmissionMode(value ? "completed" : null);
 
   useEffect(() => {
     const report = snapshot.recentReports.find((item) => item.date === today);
     setReportDraft(buildReportDraft(todayBrief, snapshot, today, report));
     setCoachReply(buildInitialCoachReply(snapshot, report));
+    setHasExerciseEdits(Boolean(report?.exerciseResults?.length));
     setShowAdvanced(false);
   }, [snapshot, today, todayBrief]);
 
@@ -198,13 +245,14 @@ export function HomeDashboard({
       const parsed = JSON.parse(storedFeedback) as FeedbackState | StoredReportState;
       if ("feedback" in parsed) {
         setFeedback(parsed.feedback);
-        if (parsed.review) {
+        const panel = parsed.panel ?? parsed.review;
+        if (panel) {
           setCoachReply({
-            title: parsed.review.title,
-            content: parsed.review.content,
+            title: panel.title,
+            content: panel.content,
             basis: [],
             contextSummary: snapshot.plan.goal,
-            source: parsed.review.source,
+            source: panel.source,
           });
         }
       } else {
@@ -249,6 +297,7 @@ export function HomeDashboard({
   }
 
   function updateExercise(index: number, patch: Partial<ExerciseResult>) {
+    setHasExerciseEdits(true);
     setReportDraft((current) => ({
       ...current,
       exerciseResults: current.exerciseResults.map((exercise, exerciseIndex) =>
@@ -309,7 +358,7 @@ export function HomeDashboard({
       } satisfies FeedbackState;
       const reviewCard = {
         title: `${todayBrief.calendarLabel} 今日点评`,
-        content: data.review,
+        content: data.review ?? "",
         source: "review" as const,
       };
 
@@ -337,6 +386,70 @@ export function HomeDashboard({
       });
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  function buildExerciseResultsForSubmit(completed: boolean) {
+    if (todayBrief.isRestDay) {
+      return [] as ExerciseResult[];
+    }
+
+    if (completed) {
+      return reportDraft.exerciseResults;
+    }
+
+    return hasExerciseEdits || existingReport?.exerciseResults?.length ? reportDraft.exerciseResults : [];
+  }
+
+  async function handleSaveDraft() {
+    setSubmissionMode("draft");
+    setFeedback({ tone: "info", message: "Saving draft..." });
+
+    try {
+      const payload: ReportDraft = {
+        ...reportDraft,
+        date: today,
+        reportVersion: 2,
+        performedDay: todayBrief.calendarSlot,
+        exerciseResults: buildExerciseResultsForSubmit(false),
+        completed: false,
+        mealLog: buildMealLogForSubmit(reportDraft.mealLog),
+      };
+
+      const data = await postJson<SessionReportResponse>("/api/session-report", payload);
+      const draftCard = {
+        title: "Today Draft",
+        content: buildDraftCoachReply(snapshot, data.report).content,
+        source: "draft" as const,
+      };
+
+      window.sessionStorage.setItem(
+        REPORT_FEEDBACK_KEY,
+        JSON.stringify({
+          feedback: {
+            tone: "success",
+            message: "Draft saved. You can keep updating meals and workout details today.",
+          } satisfies FeedbackState,
+          panel: draftCard,
+        } satisfies StoredReportState),
+      );
+
+      setCoachReply({
+        title: draftCard.title,
+        content: draftCard.content,
+        basis: [],
+        contextSummary: snapshot.plan.goal,
+        source: draftCard.source,
+      });
+      setFeedback({ tone: "success", message: "Draft saved. Refreshing the latest state..." });
+      router.refresh();
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Failed to save draft",
+      });
+    } finally {
+      setSubmissionMode(null);
     }
   }
 
@@ -436,6 +549,13 @@ export function HomeDashboard({
             </div>
           ) : null}
 
+          {existingReport && !existingReport.completed ? (
+            <div className="rounded-[20px] border border-[#e5d6ae] bg-[#fff6df] px-4 py-3 text-sm leading-6 text-[#5a4620]">
+              Draft exists for today. Keep adding meals, recovery data, or workout details. Only Complete Report will
+              generate the final review and next-day decision.
+            </div>
+          ) : null}
+
           <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -475,6 +595,9 @@ export function HomeDashboard({
                             updateExercise(index, {
                               performed: event.target.checked,
                               actualSets: event.target.checked ? exercise.actualSets || exercise.targetSets : 0,
+                              topSetWeightKg: event.target.checked
+                                ? exercise.topSetWeightKg ?? todayBrief.workoutPrescription.exercises[index]?.suggestedWeightKg
+                                : undefined,
                             })
                           }
                           className="h-4 w-4 accent-[#151811]"
@@ -515,6 +638,7 @@ export function HomeDashboard({
                             })
                           }
                           className="mt-2 w-full bg-transparent text-lg font-semibold text-[#151811] outline-none"
+                          placeholder={String(todayBrief.workoutPrescription.exercises[index]?.suggestedWeightKg ?? "")}
                         />
                       </label>
                       <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
@@ -755,11 +879,27 @@ export function HomeDashboard({
 
             <button
               type="button"
+              onClick={handleSaveDraft}
+              disabled={isSubmitting}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-full border border-black/10 bg-[#f7f3e8] px-5 py-3.5 text-sm font-semibold text-[#151811] transition hover:bg-[#efe8d4] disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {submissionMode === "draft" ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#151811]/25 border-t-[#151811]" />
+                  <span>Saving draft...</span>
+                </>
+              ) : (
+                "Save Draft"
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={handleSubmitReport}
               disabled={isSubmitting}
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[#d5ff63] px-5 py-3.5 text-sm font-semibold text-[#151811] transition hover:bg-[#c2f24a] disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {isSubmitting ? (
+              {submissionMode === "completed" ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#151811]/25 border-t-[#151811]" />
                   <span>提交中...</span>
@@ -801,6 +941,8 @@ export function HomeDashboard({
               className={`rounded-[26px] border p-5 shadow-[0_14px_36px_rgba(25,21,14,0.08)] ${
                 coachReply.source === "review"
                   ? "border-[#cddfa0] bg-[#f4f9e6]"
+                  : coachReply.source === "draft"
+                    ? "border-[#e5d6ae] bg-[#fff6df]"
                   : coachReply.source === "error"
                     ? "border-[#e6b5a8] bg-[#fff1ec]"
                     : "border-black/10 bg-white/82"
@@ -812,7 +954,11 @@ export function HomeDashboard({
                   <h3 className="mt-1 text-lg font-semibold text-[#151811]">{coachReply.title}</h3>
                 </div>
                 <div className="rounded-full bg-[#151811] px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] text-white/74">
-                  {coachReply.source === "review" ? "Today Review" : "Coach Reply"}
+                  {coachReply.source === "review"
+                    ? "Today Review"
+                    : coachReply.source === "draft"
+                      ? "Draft Saved"
+                      : "Coach Reply"}
                 </div>
               </div>
 

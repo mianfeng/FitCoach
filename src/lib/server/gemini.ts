@@ -3,6 +3,7 @@ import "server-only";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 import { env } from "@/lib/server/env";
+import type { InferredTokenEstimate } from "@/lib/nutrition";
 import { describeTrainingReadiness } from "@/lib/server/domain";
 import { normalizeMealLog, resolvePostWorkoutEntry, summarizeMealAdherence } from "@/lib/session-report";
 import type { ChatContextBundle, KnowledgeBasis, MealPrescription, SessionReport } from "@/lib/types";
@@ -30,6 +31,17 @@ function hasStrictDailyReviewShape(input: string) {
     normalized.includes("3. 🎯 质量评级") &&
     normalized.includes("4. ⚡ 行动建议")
   );
+}
+
+function formatEstimateLine(calories: number, proteinG: number, carbsG: number, fatsG: number) {
+  return `${calories} kcal / P ${proteinG} / C ${carbsG} / F ${fatsG}`;
+}
+
+function toNonNegativeNumber(value: unknown) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return null;
+  }
+  return Math.max(0, Math.round(value * 10) / 10);
 }
 
 export async function generateGeminiCoachReply(params: {
@@ -120,6 +132,40 @@ export async function generateGeminiDailyReview(params: {
   const effectivePostWorkout = mealLog ? resolvePostWorkoutEntry(mealLog) : null;
   const mealSummary = summarizeMealAdherence(mealLog);
   const targetCalories = params.targetMacros.proteinG * 4 + params.targetMacros.carbsG * 4 + params.targetMacros.fatsG * 9;
+  const mealBreakdownLines = mealLog
+    ? [
+        `Breakfast nutrition: ${formatEstimateLine(
+          mealLog.breakfast.nutritionEstimate?.calories ?? 0,
+          mealLog.breakfast.nutritionEstimate?.proteinG ?? 0,
+          mealLog.breakfast.nutritionEstimate?.carbsG ?? 0,
+          mealLog.breakfast.nutritionEstimate?.fatsG ?? 0,
+        )}`,
+        `Lunch nutrition: ${formatEstimateLine(
+          mealLog.lunch.nutritionEstimate?.calories ?? 0,
+          mealLog.lunch.nutritionEstimate?.proteinG ?? 0,
+          mealLog.lunch.nutritionEstimate?.carbsG ?? 0,
+          mealLog.lunch.nutritionEstimate?.fatsG ?? 0,
+        )}`,
+        `Dinner nutrition: ${formatEstimateLine(
+          mealLog.dinner.nutritionEstimate?.calories ?? 0,
+          mealLog.dinner.nutritionEstimate?.proteinG ?? 0,
+          mealLog.dinner.nutritionEstimate?.carbsG ?? 0,
+          mealLog.dinner.nutritionEstimate?.fatsG ?? 0,
+        )}`,
+        `Pre-workout nutrition: ${formatEstimateLine(
+          mealLog.preWorkout.nutritionEstimate?.calories ?? 0,
+          mealLog.preWorkout.nutritionEstimate?.proteinG ?? 0,
+          mealLog.preWorkout.nutritionEstimate?.carbsG ?? 0,
+          mealLog.preWorkout.nutritionEstimate?.fatsG ?? 0,
+        )}`,
+        `Post-workout nutrition: ${formatEstimateLine(
+          effectivePostWorkout?.nutritionEstimate?.calories ?? 0,
+          effectivePostWorkout?.nutritionEstimate?.proteinG ?? 0,
+          effectivePostWorkout?.nutritionEstimate?.carbsG ?? 0,
+          effectivePostWorkout?.nutritionEstimate?.fatsG ?? 0,
+        )}`,
+      ]
+    : ["Meal nutrition breakdown is unavailable."];
 
   const prompt = [
     "You are FitCoach's daily review editor.",
@@ -129,6 +175,7 @@ export async function generateGeminiDailyReview(params: {
     "1. 📊 数据核算",
     "- 估算摄入：总热量(kcal) / 蛋白质(g) / 碳水(g) / 脂肪(g)",
     "- 缺口分析：距离目标还差多少，或超标多少",
+    "- 每餐拆解：早餐/午餐/晚餐/练前/练后，逐餐给出 kcal 与 P/C/F",
     "2. 🏋️ 训练评估",
     "- 超负荷状态：[达标 / 停滞 / 需减载]",
     "- 简要评价：（一句话点评今日训练质量）",
@@ -152,6 +199,8 @@ export async function generateGeminiDailyReview(params: {
     `Dinner: ${mealLog?.dinner.content || "未填写"}`,
     `Pre-workout meal: ${mealLog?.preWorkout.content || "未填写"}`,
     `Post-workout meal: ${effectivePostWorkout?.content || "未填写"}`,
+    "Per-meal nutrition breakdown:",
+    ...mealBreakdownLines,
     `Training notes: ${params.report.trainingReportText || "未填写"}`,
     `Body weight: ${params.report.bodyWeightKg} kg`,
     `Sleep: ${params.report.sleepHours} h`,
@@ -165,4 +214,68 @@ export async function generateGeminiDailyReview(params: {
   const result = await model.generateContent(prompt);
   const text = stripCodeFence(result.response.text());
   return hasStrictDailyReviewShape(text) ? text : null;
+}
+
+export async function inferUnknownMealTokensWithGemini(tokens: string[]): Promise<InferredTokenEstimate[]> {
+  if (!env.geminiApiKey || !tokens.length) {
+    return [];
+  }
+
+  const client = new GoogleGenerativeAI(env.geminiApiKey);
+  const model = client.getGenerativeModel({ model: env.geminiModel });
+  const dedupedTokens = [...new Set(tokens.map((item) => item.trim()).filter(Boolean))];
+  if (!dedupedTokens.length) {
+    return [];
+  }
+
+  const prompt = [
+    "You are a nutrition estimator.",
+    "Reply with pure JSON only. No markdown.",
+    "Estimate each food token as one serving if quantity is unknown.",
+    "Output JSON array with this shape:",
+    `[{"token":"string","name":"string","calories":number,"proteinG":number,"carbsG":number,"fatsG":number}]`,
+    "All nutrient values must be non-negative numbers.",
+    "Tokens to estimate:",
+    ...dedupedTokens.map((token) => `- ${token}`),
+  ].join("\n");
+
+  try {
+    const result = await model.generateContent(prompt);
+    const text = stripCodeFence(result.response.text());
+    const parsed = JSON.parse(text) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const estimates: InferredTokenEstimate[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+      const token = typeof (item as { token?: unknown }).token === "string" ? (item as { token: string }).token.trim() : "";
+      if (!token) {
+        continue;
+      }
+      const calories = toNonNegativeNumber((item as { calories?: unknown }).calories);
+      const proteinG = toNonNegativeNumber((item as { proteinG?: unknown }).proteinG);
+      const carbsG = toNonNegativeNumber((item as { carbsG?: unknown }).carbsG);
+      const fatsG = toNonNegativeNumber((item as { fatsG?: unknown }).fatsG);
+      if (calories == null || proteinG == null || carbsG == null || fatsG == null) {
+        continue;
+      }
+      estimates.push({
+        token,
+        name: typeof (item as { name?: unknown }).name === "string" ? ((item as { name: string }).name.trim() || token) : token,
+        nutrition: {
+          calories,
+          proteinG,
+          carbsG,
+          fatsG,
+        },
+      });
+    }
+    return estimates;
+  } catch {
+    return [];
+  }
 }

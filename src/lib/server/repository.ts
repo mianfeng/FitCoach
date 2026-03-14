@@ -15,6 +15,7 @@ import type {
   KnowledgeImportResult,
   LongTermPlan,
   MemorySummary,
+  NutritionDish,
   PlanSnapshot,
   PlanAdjustmentProposal,
   PlanSetupInput,
@@ -109,6 +110,15 @@ type SnapshotRow = {
   created_at?: string;
 };
 
+type NutritionDishRow = {
+  id: string;
+  name: string;
+  aliases?: string[] | null;
+  macros: NutritionDish["macros"];
+  created_at?: string;
+  updated_at?: string;
+};
+
 type ChatRow = {
   id: string;
   message: ChatMessage;
@@ -125,6 +135,9 @@ export interface Repository {
   getDashboardSnapshot(): Promise<DashboardSnapshot>;
   getPlanSetup(): Promise<PlanSetupInput>;
   savePlanSetup(input: PlanSetupInput): Promise<PlanSetupInput>;
+  listNutritionDishes(): Promise<NutritionDish[]>;
+  upsertNutritionDish(input: NutritionDish): Promise<NutritionDish>;
+  deleteNutritionDish(id: string): Promise<void>;
   findPlanSnapshotByDate(date: string): Promise<PlanSnapshot | null>;
   replacePlanSnapshots(entries: PlanSnapshot[]): Promise<PlanSnapshot[]>;
   findDailyBriefByDate(date: string): Promise<DailyBrief | null>;
@@ -186,6 +199,20 @@ function dedupeByDate<T extends { date: string; createdAt?: string }>(items: T[]
   }
 
   return result;
+}
+
+function normalizeNutritionDish(input: NutritionDish): NutritionDish {
+  const aliases = [...new Set((input.aliases ?? []).map((item) => item.trim()).filter(Boolean))];
+  return {
+    id: input.id,
+    name: input.name.trim(),
+    aliases,
+    macros: {
+      proteinG: Number(input.macros.proteinG),
+      carbsG: Number(input.macros.carbsG),
+      fatsG: Number(input.macros.fatsG),
+    },
+  };
 }
 
 function normalizeReportRow(row: ReportRow) {
@@ -383,6 +410,7 @@ function createMockRepository(): Repository {
         persona: normalized.persona,
         plan: normalized.plan,
         templates: normalized.templates,
+        nutritionDishes: store.nutritionDishes.map((dish) => normalizeNutritionDish(dish)),
         recentBrief: store.recentBrief,
         recentReports: dedupeByDate(store.recentReports.map((report) => normalizeStoredSessionReport(report))).slice(0, 6),
         proposals: store.proposals.slice(0, 6),
@@ -424,6 +452,21 @@ function createMockRepository(): Repository {
       store.templates = finalized.templates;
       store.planSnapshots = buildPlanSnapshots(finalized);
       return finalized;
+    },
+    async listNutritionDishes() {
+      const store = await getMockStore();
+      return [...store.nutritionDishes].map((dish) => normalizeNutritionDish(dish));
+    },
+    async upsertNutritionDish(input) {
+      const store = await getMockStore();
+      const normalized = normalizeNutritionDish(input);
+      const rest = store.nutritionDishes.filter((item) => item.id !== normalized.id);
+      store.nutritionDishes = [normalized, ...rest];
+      return normalized;
+    },
+    async deleteNutritionDish(id) {
+      const store = await getMockStore();
+      store.nutritionDishes = store.nutritionDishes.filter((item) => item.id !== id);
     },
     async findPlanSnapshotByDate(date) {
       const store = await getMockStore();
@@ -620,14 +663,21 @@ function createSupabaseRepository(): Repository {
         plan: coachState.active_plan,
         templates: coachState.workout_templates,
       });
-      const [{ data: briefRows }, { data: reportRows }, { data: proposalRows }, { data: summaryRows }, { data: chatRows }] =
-        await Promise.all([
-          supabase.from("daily_briefs").select("*").order("created_at", { ascending: false }).limit(1).returns<BriefRow[]>(),
-          supabase.from("session_reports").select("*").order("created_at", { ascending: false }).limit(24).returns<ReportRow[]>(),
-          supabase.from("plan_adjustments").select("*").order("created_at", { ascending: false }).limit(6).returns<ProposalRow[]>(),
-          supabase.from("memory_summaries").select("*").order("created_at", { ascending: false }).limit(24).returns<SummaryRow[]>(),
-          supabase.from("chat_messages").select("*").order("created_at", { ascending: false }).limit(8).returns<ChatRow[]>(),
-        ]);
+      const [
+        { data: briefRows },
+        { data: reportRows },
+        { data: proposalRows },
+        { data: summaryRows },
+        { data: chatRows },
+        { data: nutritionDishRows },
+      ] = await Promise.all([
+        supabase.from("daily_briefs").select("*").order("created_at", { ascending: false }).limit(1).returns<BriefRow[]>(),
+        supabase.from("session_reports").select("*").order("created_at", { ascending: false }).limit(24).returns<ReportRow[]>(),
+        supabase.from("plan_adjustments").select("*").order("created_at", { ascending: false }).limit(6).returns<ProposalRow[]>(),
+        supabase.from("memory_summaries").select("*").order("created_at", { ascending: false }).limit(24).returns<SummaryRow[]>(),
+        supabase.from("chat_messages").select("*").order("created_at", { ascending: false }).limit(8).returns<ChatRow[]>(),
+        supabase.from("nutrition_dishes").select("*").order("updated_at", { ascending: false }).returns<NutritionDishRow[]>(),
+      ]);
 
       const hydratedReports = await hydrateReportRows(supabase, reportRows);
       const recentReports = dedupeByDate(hydratedReports).slice(0, 6);
@@ -638,6 +688,14 @@ function createSupabaseRepository(): Repository {
         persona: normalized.persona,
         plan: normalized.plan,
         templates: normalized.templates,
+        nutritionDishes: (nutritionDishRows ?? []).map((row) =>
+          normalizeNutritionDish({
+            id: row.id,
+            name: row.name,
+            aliases: row.aliases ?? [],
+            macros: row.macros,
+          }),
+        ),
         recentBrief: briefRows?.[0]?.brief ?? null,
         recentReports,
         proposals: (proposalRows ?? []).map((row) => row.proposal),
@@ -681,6 +739,42 @@ function createSupabaseRepository(): Repository {
       const snapshots = buildPlanSnapshots(finalized);
       await this.replacePlanSnapshots(snapshots);
       return finalized;
+    },
+    async listNutritionDishes() {
+      const { data } = await supabase
+        .from("nutrition_dishes")
+        .select("*")
+        .order("updated_at", { ascending: false })
+        .returns<NutritionDishRow[]>();
+      return (data ?? []).map((row) =>
+        normalizeNutritionDish({
+          id: row.id,
+          name: row.name,
+          aliases: row.aliases ?? [],
+          macros: row.macros,
+        }),
+      );
+    },
+    async upsertNutritionDish(input) {
+      const normalized = normalizeNutritionDish(input);
+      const now = new Date().toISOString();
+      const { error } = await supabase.from("nutrition_dishes").upsert({
+        id: normalized.id,
+        name: normalized.name,
+        aliases: normalized.aliases,
+        macros: normalized.macros,
+        updated_at: now,
+      });
+      if (error) {
+        throw error;
+      }
+      return normalized;
+    },
+    async deleteNutritionDish(id) {
+      const { error } = await supabase.from("nutrition_dishes").delete().eq("id", id);
+      if (error) {
+        throw error;
+      }
     },
     async findPlanSnapshotByDate(date) {
       try {

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 
 import { SectionCard } from "@/components/section-card";
@@ -5,11 +6,12 @@ import type { RuntimeStatus } from "@/lib/server/status";
 
 interface RuntimeChecklistProps {
   status: RuntimeStatus;
+  dishManager?: ReactNode;
 }
 
-export function RuntimeChecklist({ status }: RuntimeChecklistProps) {
+export function RuntimeChecklist({ status, dishManager }: RuntimeChecklistProps) {
   return (
-    <div className="grid gap-5 pb-28 xl:grid-cols-[0.9fr_1.1fr]">
+    <div className={`grid gap-5 pb-28 ${dishManager ? "xl:grid-cols-[0.72fr_0.98fr_1fr]" : "xl:grid-cols-[0.9fr_1.1fr]"}`}>
       <SectionCard
         eyebrow="Runtime"
         title="当前运行状态"
@@ -88,6 +90,7 @@ export function RuntimeChecklist({ status }: RuntimeChecklistProps) {
           </Link>
         </div>
       </SectionCard>
+      {dishManager ? dishManager : null}
     </div>
   );
 }

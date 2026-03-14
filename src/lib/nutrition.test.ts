@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { parseMealText, summarizeReportNutrition } from "@/lib/nutrition";
 import { createEmptyMealLog } from "@/lib/session-report";
+import type { NutritionDish } from "@/lib/types";
 
 describe("nutrition parser", () => {
   it("parses explicit gram input for whole wheat bread", () => {
@@ -21,6 +22,37 @@ describe("nutrition parser", () => {
     expect(result.parsedItems).toHaveLength(1);
     expect(result.parsedItems[0]?.milliliters).toBe(300);
     expect(result.nutritionEstimate.calories).toBe(120);
+    expect(result.analysisWarnings).toHaveLength(0);
+  });
+
+  it("parses banana with root count", () => {
+    const result = parseMealText("一根香蕉");
+
+    expect(result.parsedItems).toHaveLength(1);
+    expect(result.parsedItems[0]?.name).toBe("香蕉");
+    expect(result.parsedItems[0]?.grams).toBe(120);
+    expect(result.nutritionEstimate.calories).toBe(106.8);
+    expect(result.analysisWarnings).toHaveLength(0);
+  });
+
+  it("parses custom dishes by alias with per-serving macros", () => {
+    const customDishes: NutritionDish[] = [
+      {
+        id: "dish-spicy-beef",
+        name: "辣椒炒牛肉",
+        aliases: ["炒牛肉", "牛肉小炒"],
+        macros: {
+          proteinG: 28,
+          carbsG: 12,
+          fatsG: 18,
+        },
+      },
+    ];
+    const result = parseMealText("炒牛肉", { customDishes });
+
+    expect(result.parsedItems).toHaveLength(1);
+    expect(result.parsedItems[0]?.name).toBe("辣椒炒牛肉");
+    expect(result.nutritionEstimate.calories).toBe(322);
     expect(result.analysisWarnings).toHaveLength(0);
   });
 
@@ -48,12 +80,51 @@ describe("nutrition parser", () => {
   it("estimates combo defaults when only combo text is provided", () => {
     const result = parseMealText("烤鱼饭");
 
-    expect(result.parsedItems.map((item) => item.name)).toEqual(["鱼肉", "米饭"]);
-    expect(result.nutritionEstimate.calories).toBe(482);
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["鱼肉", "米饭", "食用油"]);
+    expect(result.nutritionEstimate.calories).toBe(552.7);
     expect(result.nutritionEstimate.proteinG).toBe(39.5);
     expect(result.nutritionEstimate.carbsG).toBe(64.8);
-    expect(result.nutritionEstimate.fatsG).toBe(6.8);
+    expect(result.nutritionEstimate.fatsG).toBe(14.8);
     expect(result.analysisWarnings.some((warning) => warning.includes("烤鱼饭"))).toBe(true);
+  });
+
+  it("estimates stir-fry dishes with default oil", () => {
+    const result = parseMealText("辣椒炒肉");
+
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["猪肉", "辣椒", "食用油"]);
+    expect(result.nutritionEstimate.calories).toBe(376.4);
+    expect(result.nutritionEstimate.proteinG).toBe(27.6);
+    expect(result.nutritionEstimate.carbsG).toBe(4.8);
+    expect(result.nutritionEstimate.fatsG).toBe(28.2);
+  });
+
+  it("uses inferred AI estimate for unknown tokens without warning", () => {
+    const result = parseMealText("神秘便当", {
+      inferredTokenEstimates: [
+        {
+          token: "神秘便当",
+          nutrition: {
+            calories: 520,
+            proteinG: 24,
+            carbsG: 62,
+            fatsG: 18,
+          },
+        },
+      ],
+    });
+
+    expect(result.parsedItems).toHaveLength(1);
+    expect(result.parsedItems[0]?.quantitySource).toBe("ai");
+    expect(result.nutritionEstimate.calories).toBe(520);
+    expect(result.analysisWarnings).toHaveLength(0);
+    expect(result.unknownTokens).toHaveLength(0);
+  });
+
+  it("keeps warning when unknown token has no inferred estimate", () => {
+    const result = parseMealText("火星蛋白饭");
+
+    expect(result.analysisWarnings.some((warning) => warning.includes("未识别条目"))).toBe(true);
+    expect(result.unknownTokens).toContain("火星蛋白饭");
   });
 });
 

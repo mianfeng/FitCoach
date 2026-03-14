@@ -397,6 +397,7 @@ export function buildEmptyDashboardSeed() {
     persona: setup.persona,
     plan: setup.plan,
     templates: setup.templates,
+    nutritionDishes: [],
     recentBrief: null as DailyBrief | null,
     recentReports: [] as SessionReport[],
     proposals: [] as PlanAdjustmentProposal[],

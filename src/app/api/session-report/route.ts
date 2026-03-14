@@ -8,7 +8,7 @@ import {
   buildTodayAutofillBrief,
 } from "@/lib/server/domain";
 import { summarizeReportNutrition } from "@/lib/nutrition";
-import { generateGeminiDailyReview } from "@/lib/server/gemini";
+import { generateGeminiDailyReview, inferUnknownMealTokensWithGemini } from "@/lib/server/gemini";
 import { deriveDietAdherence, normalizeMealLog } from "@/lib/session-report";
 import { getRepository } from "@/lib/server/repository";
 import { uid } from "@/lib/utils";
@@ -50,7 +50,19 @@ export async function POST(request: Request) {
       carbsG: reviewBrief.mealPrescription.macros.carbsG,
       fatsG: reviewBrief.mealPrescription.macros.fatsG,
     };
-    const nutritionSummary = summarizeReportNutrition(mealLog, targetNutrition);
+    const baseNutritionSummary = summarizeReportNutrition(mealLog, targetNutrition, {
+      customDishes: snapshot.nutritionDishes,
+    });
+    let nutritionSummary = baseNutritionSummary;
+    if (baseNutritionSummary.unknownTokens.length) {
+      const inferredEstimates = await inferUnknownMealTokensWithGemini(baseNutritionSummary.unknownTokens);
+      if (inferredEstimates.length) {
+        nutritionSummary = summarizeReportNutrition(mealLog, targetNutrition, {
+          customDishes: snapshot.nutritionDishes,
+          inferredTokenEstimates: inferredEstimates,
+        });
+      }
+    }
     const reportWithNutrition = {
       ...normalizedReport,
       mealLog: nutritionSummary.mealLog,
@@ -115,7 +127,7 @@ export async function POST(request: Request) {
       summary: "",
       dailyReviewMarkdown: review,
       nextDayDecision,
-      ...normalizedReport,
+      ...reportWithNutrition,
     };
     const saved = await repository.saveSessionReport(report);
     const proposals = await repository.listPlanAdjustments(3);

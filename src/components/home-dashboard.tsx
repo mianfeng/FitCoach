@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { SectionCard } from "@/components/section-card";
 import { summarizeReportNutrition } from "@/lib/nutrition";
-import { buildMealLogForSubmit, countFilledMealSlots, createEmptyMealLog, mealAdherenceLabels, mealSlotLabels } from "@/lib/session-report";
+import { buildMealLogForSubmit, countFilledMealSlots, createEmptyMealLog, mealSlotLabels } from "@/lib/session-report";
 import type { ChatMessage, DashboardSnapshot, DailyBrief, ExerciseResult, MealLog, SessionReport } from "@/lib/types";
 
 type ReportDraft = {
@@ -248,7 +248,9 @@ export function HomeDashboard({
     carbsG: todayBrief.mealPrescription.macros.carbsG,
     fatsG: todayBrief.mealPrescription.macros.fatsG,
   };
-  const nutritionPreview = summarizeReportNutrition(reportDraft.mealLog, nutritionTarget);
+  const nutritionPreview = summarizeReportNutrition(reportDraft.mealLog, nutritionTarget, {
+    customDishes: snapshot.nutritionDishes,
+  });
   const previewMealLog = nutritionPreview.mealLog ?? reportDraft.mealLog;
 
   useEffect(() => {
@@ -790,40 +792,18 @@ export function HomeDashboard({
                       </div>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {(["on_plan", "adjusted", "missed"] as const).map((status) => (
-                        <button
-                          key={status}
-                          type="button"
-                          disabled={isMirroredPostWorkout}
-                          onClick={() => updateMeal(field.key, { adherence: status })}
-                          className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
-                            currentEntry.adherence === status
-                              ? "bg-[#151811] text-white"
-                              : "border border-black/10 bg-white text-[#151811]"
-                          } ${isMirroredPostWorkout ? "cursor-not-allowed opacity-60" : ""}`}
-                        >
-                          {mealAdherenceLabels[status]}
-                        </button>
-                      ))}
-                    </div>
-
-                    <textarea
+                    <input
                       value={currentEntry.content}
-                      onChange={(event) => updateMeal(field.key, { content: event.target.value })}
-                      rows={2}
+                      onChange={(event) =>
+                        updateMeal(field.key, {
+                          content: event.target.value,
+                          adherence: event.target.value.trim() ? "on_plan" : "missed",
+                          deviationNote: "",
+                        })
+                      }
                       disabled={isMirroredPostWorkout}
-                      className="mt-3 w-full resize-none bg-transparent text-sm leading-7 outline-none disabled:opacity-50"
-                      placeholder={`输入${field.label}内容，如食物、份量、饮品。`}
-                    />
-
-                    <textarea
-                      value={currentEntry.deviationNote ?? ""}
-                      onChange={(event) => updateMeal(field.key, { deviationNote: event.target.value })}
-                      rows={2}
-                      disabled={isMirroredPostWorkout}
-                      className="mt-3 w-full resize-none rounded-[16px] border border-black/10 bg-white px-3 py-3 text-sm leading-6 outline-none disabled:opacity-50"
-                      placeholder="如果有调整或缺失，写下原因，比如临时换餐、时间错位、没吃到。"
+                      className="mt-3 w-full rounded-[14px] border border-black/10 bg-white px-3 py-2.5 text-sm leading-6 outline-none disabled:opacity-50"
+                      placeholder={`输入${field.label}，例如：鸡排饭 100g鸡排 250g米饭 1勺蛋白粉30g`}
                     />
 
                     {currentEntry.content.trim() ? (

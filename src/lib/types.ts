@@ -223,6 +223,17 @@ export interface NutritionEstimate {
   fatsG: number;
 }
 
+export interface NutritionDish {
+  id: string;
+  name: string;
+  aliases: string[];
+  macros: {
+    proteinG: number;
+    carbsG: number;
+    fatsG: number;
+  };
+}
+
 export interface ParsedMealItem {
   name: string;
   sourceText: string;
@@ -230,7 +241,7 @@ export interface ParsedMealItem {
   unit: string;
   grams?: number;
   milliliters?: number;
-  quantitySource: "explicit" | "default";
+  quantitySource: "explicit" | "default" | "ai";
   category: string;
   calories: number;
   proteinG: number;
@@ -373,6 +384,7 @@ export interface DashboardSnapshot {
   persona: CoachPersona;
   plan: LongTermPlan;
   templates: WorkoutTemplate[];
+  nutritionDishes: NutritionDish[];
   recentBrief: DailyBrief | null;
   recentReports: SessionReport[];
   proposals: PlanAdjustmentProposal[];

@@ -1,4 +1,4 @@
-import type { MealLog, MealLogEntry, NutritionEstimate, ParsedMealItem } from "@/lib/types";
+import type { MealLog, MealLogEntry, NutritionDish, NutritionEstimate, ParsedMealItem } from "@/lib/types";
 
 type FoodPortionUnit = "g" | "ml" | "slice" | "piece" | "cup" | "bowl" | "serving";
 type NutritionBasis = "per100g" | "per100ml" | "perUnit";
@@ -44,6 +44,7 @@ export type MealParseResult = {
   parsedItems: ParsedMealItem[];
   nutritionEstimate: NutritionEstimate;
   analysisWarnings: string[];
+  unknownTokens: string[];
 };
 
 export type ReportNutritionSummary = {
@@ -51,6 +52,18 @@ export type ReportNutritionSummary = {
   nutritionTotals: NutritionEstimate;
   nutritionGap: NutritionEstimate;
   nutritionWarnings: string[];
+  unknownTokens: string[];
+};
+
+export type InferredTokenEstimate = {
+  token: string;
+  name?: string;
+  nutrition: NutritionEstimate;
+};
+
+type MealParseOptions = {
+  customDishes?: NutritionDish[];
+  inferredTokenEstimates?: InferredTokenEstimate[];
 };
 
 const chineseNumberMap: Record<string, number> = {
@@ -75,6 +88,7 @@ const unitMap: Record<string, FoodPortionUnit> = {
   l: "ml",
   片: "slice",
   个: "piece",
+  根: "piece",
   杯: "cup",
   碗: "bowl",
   份: "serving",
@@ -142,6 +156,18 @@ const foodLibrary: FoodLibraryItem[] = [
     defaultServing: { amount: 50, unit: "g", grams: 50 },
   },
   {
+    id: "banana",
+    name: "香蕉",
+    aliases: ["香蕉", "一根香蕉"],
+    category: "fruit",
+    basis: "per100g",
+    calories: 89,
+    proteinG: 1.1,
+    carbsG: 22.8,
+    fatsG: 0.3,
+    defaultServing: { amount: 1, unit: "piece", grams: 120 },
+  },
+  {
     id: "egg",
     name: "鸡蛋",
     aliases: ["鸡蛋", "蛋", "全蛋"],
@@ -190,6 +216,18 @@ const foodLibrary: FoodLibraryItem[] = [
     defaultServing: { amount: 100, unit: "g", grams: 100 },
   },
   {
+    id: "pork",
+    name: "猪肉",
+    aliases: ["猪肉", "瘦猪肉", "里脊"],
+    category: "protein",
+    basis: "per100g",
+    calories: 220,
+    proteinG: 22,
+    carbsG: 0,
+    fatsG: 15,
+    defaultServing: { amount: 120, unit: "g", grams: 120 },
+  },
+  {
     id: "fish",
     name: "鱼肉",
     aliases: ["鱼肉", "鱼", "烤鱼"],
@@ -200,6 +238,18 @@ const foodLibrary: FoodLibraryItem[] = [
     carbsG: 0,
     fatsG: 4,
     defaultServing: { amount: 150, unit: "g", grams: 150 },
+  },
+  {
+    id: "chili_pepper",
+    name: "辣椒",
+    aliases: ["辣椒", "青椒", "红椒", "甜椒"],
+    category: "vegetable",
+    basis: "per100g",
+    calories: 30,
+    proteinG: 1.5,
+    carbsG: 6,
+    fatsG: 0.3,
+    defaultServing: { amount: 80, unit: "g", grams: 80 },
   },
   {
     id: "milk",
@@ -224,6 +274,18 @@ const foodLibrary: FoodLibraryItem[] = [
     carbsG: 9,
     fatsG: 2.4,
     defaultServing: { amount: 200, unit: "g", grams: 200 },
+  },
+  {
+    id: "cooking_oil",
+    name: "食用油",
+    aliases: ["食用油", "烹调油", "橄榄油", "菜籽油"],
+    category: "fat",
+    basis: "per100g",
+    calories: 884,
+    proteinG: 0,
+    carbsG: 0,
+    fatsG: 100,
+    defaultServing: { amount: 10, unit: "g", grams: 10 },
   },
   {
     id: "protein_powder",
@@ -271,6 +333,7 @@ const comboLibrary: ComboDefinition[] = [
     components: [
       { foodId: "fish", amount: 150, unit: "g" },
       { foodId: "rice", amount: 250, unit: "g" },
+      { foodId: "cooking_oil", amount: 8, unit: "g" },
     ],
   },
   {
@@ -291,11 +354,46 @@ const comboLibrary: ComboDefinition[] = [
       { foodId: "rice", amount: 250, unit: "g" },
     ],
   },
+  {
+    id: "spicy_pork",
+    name: "辣椒炒肉",
+    aliases: ["辣椒炒肉", "青椒炒肉", "小炒肉"],
+    components: [
+      { foodId: "pork", amount: 120, unit: "g" },
+      { foodId: "chili_pepper", amount: 80, unit: "g" },
+      { foodId: "cooking_oil", amount: 10, unit: "g" },
+    ],
+  },
 ];
 
-const foodAliasIndex = [...foodLibrary]
-  .flatMap((item) => [item.name, ...item.aliases].map((alias) => ({ alias: alias.replace(/\s+/g, "").toLowerCase(), item })))
-  .sort((left, right) => right.alias.length - left.alias.length);
+function toCustomFoodLibrary(customDishes?: NutritionDish[]) {
+  const dishes: FoodLibraryItem[] = [];
+  for (const dish of customDishes ?? []) {
+    const normalizedName = dish.name.trim();
+    if (!normalizedName) {
+      continue;
+    }
+    dishes.push({
+      id: `custom-${dish.id}`,
+      name: normalizedName,
+      aliases: dish.aliases.map((alias) => alias.trim()).filter(Boolean),
+      category: "custom",
+      basis: "perUnit",
+      calories: roundNutrition(dish.macros.proteinG * 4 + dish.macros.carbsG * 4 + dish.macros.fatsG * 9),
+      proteinG: roundNutrition(dish.macros.proteinG),
+      carbsG: roundNutrition(dish.macros.carbsG),
+      fatsG: roundNutrition(dish.macros.fatsG),
+      defaultServing: { amount: 1, unit: "serving" },
+    });
+  }
+  return dishes;
+}
+
+function buildFoodAliasIndex(customDishes?: NutritionDish[]) {
+  return [...foodLibrary, ...toCustomFoodLibrary(customDishes)]
+    .flatMap((item) => [item.name, ...item.aliases].map((alias) => ({ alias: alias.replace(/\s+/g, "").toLowerCase(), item })))
+    .sort((left, right) => right.alias.length - left.alias.length);
+}
 
 const comboAliasIndex = [...comboLibrary]
   .flatMap((combo) => [combo.name, ...combo.aliases].map((alias) => ({ alias: alias.replace(/\s+/g, "").toLowerCase(), combo })))
@@ -338,14 +436,36 @@ function splitMealTokens(text: string) {
     .filter(Boolean);
 }
 
-function findFoodMatch(token: string) {
+function findFoodMatch(
+  token: string,
+  foodAliasIndex: Array<{ alias: string; item: FoodLibraryItem }>,
+) {
   const normalized = normalizeLookupToken(token);
-  return foodAliasIndex.find((entry) => normalized.includes(entry.alias))?.item ?? null;
+  return (
+    foodAliasIndex.find((entry) => {
+      if (entry.alias.length <= 1) {
+        return normalized === entry.alias || normalized.endsWith(entry.alias);
+      }
+      return normalized.includes(entry.alias);
+    })?.item ?? null
+  );
 }
 
 function findComboMatch(token: string) {
   const normalized = normalizeLookupToken(token);
   return comboAliasIndex.find((entry) => normalized.includes(entry.alias))?.combo ?? null;
+}
+
+function buildInferredTokenMap(estimates?: InferredTokenEstimate[]) {
+  const map = new Map<string, InferredTokenEstimate>();
+  for (const item of estimates ?? []) {
+    const key = normalizeLookupToken(item.token);
+    if (!key) {
+      continue;
+    }
+    map.set(key, item);
+  }
+  return map;
 }
 
 function convertQuantityToMeasure(
@@ -389,8 +509,8 @@ function convertQuantityToMeasure(
 
 function parseQuantity(token: string, item: FoodLibraryItem): QuantityInfo {
   const normalized = token.replace(/\s+/g, "");
-  const numericMatches = [...normalized.matchAll(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l|片|个|杯|碗|份)/gi)];
-  const chineseMatch = normalized.match(/([半一二两三四五六七八九十])\s*(片|个|杯|碗|份)/);
+  const numericMatches = [...normalized.matchAll(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l|片|个|根|杯|碗|份)/gi)];
+  const chineseMatch = normalized.match(/([半一二两三四五六七八九十])\s*(片|个|根|杯|碗|份)/);
 
   const preferredMatch = numericMatches.find((match) => ["kg", "g", "ml", "l"].includes(match[2].toLowerCase())) ?? numericMatches[0];
   if (preferredMatch) {
@@ -493,18 +613,22 @@ function uniqueWarnings(warnings: string[]) {
   return [...new Set(warnings.filter(Boolean))];
 }
 
-export function parseMealText(text: string): MealParseResult {
+export function parseMealText(text: string, options: MealParseOptions = {}): MealParseResult {
   const tokens = splitMealTokens(text);
   if (!tokens.length) {
     return {
       parsedItems: [],
       nutritionEstimate: emptyNutrition(),
       analysisWarnings: [],
+      unknownTokens: [],
     };
   }
 
+  const foodAliasIndex = buildFoodAliasIndex(options.customDishes);
+  const inferredTokenMap = buildInferredTokenMap(options.inferredTokenEstimates);
   const parsedItems: ParsedMealItem[] = [];
   const warnings: string[] = [];
+  const unknownTokens: string[] = [];
   const combos: Array<{ combo: ComboDefinition; token: string; count: number }> = [];
   const explicitFoodNames = new Set<string>();
 
@@ -523,9 +647,28 @@ export function parseMealText(text: string): MealParseResult {
       continue;
     }
 
-    const food = findFoodMatch(token);
+    const food = findFoodMatch(token, foodAliasIndex);
     if (!food) {
+      const inferred = inferredTokenMap.get(normalizeLookupToken(token));
+      if (inferred) {
+        parsedItems.push({
+          name: inferred.name?.trim() || token,
+          sourceText: token,
+          amount: 1,
+          unit: "serving",
+          quantitySource: "ai",
+          category: "ai_inferred",
+          calories: roundNutrition(inferred.nutrition.calories),
+          proteinG: roundNutrition(inferred.nutrition.proteinG),
+          carbsG: roundNutrition(inferred.nutrition.carbsG),
+          fatsG: roundNutrition(inferred.nutrition.fatsG),
+          note: "AI估算",
+        });
+        continue;
+      }
+
       warnings.push(`未识别条目：${token}`);
+      unknownTokens.push(token);
       continue;
     }
 
@@ -534,7 +677,7 @@ export function parseMealText(text: string): MealParseResult {
     parsedItems.push(parsedItem);
     explicitFoodNames.add(food.name);
 
-    if (!quantity.explicit) {
+    if (!quantity.explicit && food.category !== "custom") {
       warnings.push(`${food.name} 未写明份量，按默认份量估算。`);
     }
   }
@@ -574,17 +717,25 @@ export function parseMealText(text: string): MealParseResult {
     parsedItems,
     nutritionEstimate,
     analysisWarnings: uniqueWarnings(warnings),
+    unknownTokens: uniqueWarnings(unknownTokens),
   };
 }
 
-function enrichMealEntry(entry: MealLogEntry): MealLogEntry {
-  const parsed = parseMealText(entry.content);
+function enrichMealEntry(entry: MealLogEntry, options?: MealParseOptions) {
+  const parsed = parseMealText(entry.content, options);
   return {
-    ...entry,
-    parsedItems: parsed.parsedItems,
-    nutritionEstimate: parsed.nutritionEstimate,
-    analysisWarnings: parsed.analysisWarnings,
+    entry: {
+      ...entry,
+      parsedItems: parsed.parsedItems,
+      nutritionEstimate: parsed.nutritionEstimate,
+      analysisWarnings: parsed.analysisWarnings,
+    } satisfies MealLogEntry,
+    unknownTokens: parsed.unknownTokens,
   };
+}
+
+function mergeUnknownTokens(chunks: string[]) {
+  return uniqueWarnings(chunks);
 }
 
 function getEffectiveSlotKeys(mealLog: MealLog) {
@@ -596,6 +747,7 @@ function getEffectiveSlotKeys(mealLog: MealLog) {
 export function summarizeReportNutrition(
   mealLog: MealLog | undefined,
   targetMacros: NutritionEstimate,
+  options: MealParseOptions = {},
 ): ReportNutritionSummary {
   if (!mealLog) {
     return {
@@ -608,16 +760,23 @@ export function summarizeReportNutrition(
         fatsG: -targetMacros.fatsG,
       },
       nutritionWarnings: ["今天还没有可解析的餐次文本。"],
+      unknownTokens: [],
     };
   }
 
+  const breakfastParsed = enrichMealEntry(mealLog.breakfast, options);
+  const lunchParsed = enrichMealEntry(mealLog.lunch, options);
+  const dinnerParsed = enrichMealEntry(mealLog.dinner, options);
+  const preWorkoutParsed = enrichMealEntry(mealLog.preWorkout, options);
+  const postWorkoutParsed = enrichMealEntry(mealLog.postWorkout, options);
+
   const enrichedMealLog: MealLog = {
     ...mealLog,
-    breakfast: enrichMealEntry(mealLog.breakfast),
-    lunch: enrichMealEntry(mealLog.lunch),
-    dinner: enrichMealEntry(mealLog.dinner),
-    preWorkout: enrichMealEntry(mealLog.preWorkout),
-    postWorkout: enrichMealEntry(mealLog.postWorkout),
+    breakfast: breakfastParsed.entry,
+    lunch: lunchParsed.entry,
+    dinner: dinnerParsed.entry,
+    preWorkout: preWorkoutParsed.entry,
+    postWorkout: postWorkoutParsed.entry,
   };
 
   if (mealLog.postWorkoutSource === "lunch") {
@@ -649,10 +808,19 @@ export function summarizeReportNutrition(
     slotKeys.flatMap((slot) => enrichedMealLog[slot].analysisWarnings ?? []),
   );
 
+  const unknownTokens = mergeUnknownTokens([
+    ...breakfastParsed.unknownTokens,
+    ...lunchParsed.unknownTokens,
+    ...dinnerParsed.unknownTokens,
+    ...preWorkoutParsed.unknownTokens,
+    ...postWorkoutParsed.unknownTokens,
+  ]);
+
   return {
     mealLog: enrichedMealLog,
     nutritionTotals,
     nutritionGap,
     nutritionWarnings,
+    unknownTokens,
   };
 }

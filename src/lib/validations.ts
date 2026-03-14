@@ -122,6 +122,23 @@ export const planSetupSchema = z.object({
   ),
 });
 
+const nutritionMacrosSchema = z
+  .object({
+    proteinG: z.number().min(0),
+    carbsG: z.number().min(0),
+    fatsG: z.number().min(0),
+  })
+  .refine((value) => value.proteinG + value.carbsG + value.fatsG > 0, {
+    message: "至少填写一个大于 0 的宏量营养素。",
+  });
+
+export const nutritionDishSchema = z.object({
+  id: z.string().min(1).optional(),
+  name: z.string().min(1),
+  aliases: z.array(z.string()).default([]),
+  macros: nutritionMacrosSchema,
+});
+
 export const chatRequestSchema = z.object({
   message: z.string().min(2),
 });

@@ -28,6 +28,7 @@ import {
   countFilledMealSlots,
   createEmptyMealLog,
   normalizeMealLog,
+  resolvePostWorkoutEntry,
   summarizeMealAdherence,
 } from "@/lib/session-report";
 import { summarizeReportNutrition } from "@/lib/nutrition";
@@ -581,14 +582,17 @@ export function buildStrictDailyReviewMarkdown(params: {
     carbsG: targetMacros.carbsG,
     fatsG: targetMacros.fatsG,
   };
+  const normalizedMealLog = normalizeMealLog(report.mealLog);
   const nutritionSummary =
     report.nutritionTotals && report.nutritionGap
       ? {
+          mealLog: normalizedMealLog,
           nutritionTotals: report.nutritionTotals,
           nutritionGap: report.nutritionGap,
           nutritionWarnings: report.nutritionWarnings ?? [],
+          unknownTokens: [],
         }
-      : summarizeReportNutrition(normalizeMealLog(report.mealLog), targetNutrition);
+      : summarizeReportNutrition(normalizedMealLog, targetNutrition);
   const nextDayDecision =
     params.nextDayDecision ??
     report.nextDayDecision ?? {
@@ -635,6 +639,17 @@ export function buildStrictDailyReviewMarkdown(params: {
     report.performedDay === "rest"
       ? "今天是休息日，重点不在训练刺激，而在恢复和饮食有没有把明天的推进基础铺好。"
       : `动作完成 ${getPerformedExerciseCount(report)}/${report.exerciseResults?.length ?? 0}，平均 RPE ${averageReportRpe(report).toFixed(1)}，掉组 ${countDroppedSets(report)} 次。`;
+  const parsedMealLog = nutritionSummary.mealLog ?? normalizedMealLog;
+  const effectivePostWorkout = parsedMealLog ? resolvePostWorkoutEntry(parsedMealLog) : undefined;
+  const mealBreakdownLine = parsedMealLog
+    ? [
+        `早餐 ${parsedMealLog.breakfast.nutritionEstimate?.calories ?? 0} kcal (P ${parsedMealLog.breakfast.nutritionEstimate?.proteinG ?? 0} / C ${parsedMealLog.breakfast.nutritionEstimate?.carbsG ?? 0} / F ${parsedMealLog.breakfast.nutritionEstimate?.fatsG ?? 0})`,
+        `午餐 ${parsedMealLog.lunch.nutritionEstimate?.calories ?? 0} kcal (P ${parsedMealLog.lunch.nutritionEstimate?.proteinG ?? 0} / C ${parsedMealLog.lunch.nutritionEstimate?.carbsG ?? 0} / F ${parsedMealLog.lunch.nutritionEstimate?.fatsG ?? 0})`,
+        `晚餐 ${parsedMealLog.dinner.nutritionEstimate?.calories ?? 0} kcal (P ${parsedMealLog.dinner.nutritionEstimate?.proteinG ?? 0} / C ${parsedMealLog.dinner.nutritionEstimate?.carbsG ?? 0} / F ${parsedMealLog.dinner.nutritionEstimate?.fatsG ?? 0})`,
+        `练前 ${parsedMealLog.preWorkout.nutritionEstimate?.calories ?? 0} kcal (P ${parsedMealLog.preWorkout.nutritionEstimate?.proteinG ?? 0} / C ${parsedMealLog.preWorkout.nutritionEstimate?.carbsG ?? 0} / F ${parsedMealLog.preWorkout.nutritionEstimate?.fatsG ?? 0})`,
+        `练后 ${effectivePostWorkout?.nutritionEstimate?.calories ?? 0} kcal (P ${effectivePostWorkout?.nutritionEstimate?.proteinG ?? 0} / C ${effectivePostWorkout?.nutritionEstimate?.carbsG ?? 0} / F ${effectivePostWorkout?.nutritionEstimate?.fatsG ?? 0})`,
+      ].join("；")
+    : "暂无可拆解的每餐营养数据。";
 
   const actions = buildStrictActionItems({
     report,
@@ -647,6 +662,7 @@ export function buildStrictDailyReviewMarkdown(params: {
     "",
     `- 估算摄入：${nutritionSummary.nutritionTotals.calories} kcal / ${nutritionSummary.nutritionTotals.proteinG} g / ${nutritionSummary.nutritionTotals.carbsG} g / ${nutritionSummary.nutritionTotals.fatsG} g`,
     `- 缺口分析：${buildGapText(nutritionSummary.nutritionTotals.calories, targetKcal, "热量")}；${buildGapText(nutritionSummary.nutritionTotals.proteinG, targetMacros.proteinG, "蛋白质")}；${buildGapText(nutritionSummary.nutritionTotals.carbsG, targetMacros.carbsG, "碳水")}；${buildGapText(nutritionSummary.nutritionTotals.fatsG, targetMacros.fatsG, "脂肪")}`,
+    `- 每餐拆解：${mealBreakdownLine}`,
     "",
     "2. 🏋️ 训练评估",
     "",

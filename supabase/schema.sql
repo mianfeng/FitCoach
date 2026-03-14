@@ -91,6 +91,15 @@ alter table if exists session_report_meals add column if not exists estimated_ca
 alter table if exists session_report_meals add column if not exists estimated_fats_g numeric;
 alter table if exists session_report_meals add column if not exists analysis_warnings text[] not null default '{}';
 
+create table if not exists nutrition_dishes (
+  id text primary key,
+  name text not null,
+  aliases text[] not null default '{}',
+  macros jsonb not null,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
 create table if not exists knowledge_docs (
   id text primary key,
   title text not null,
@@ -117,6 +126,7 @@ create index if not exists idx_plan_snapshots_created_at on plan_snapshots (crea
 create index if not exists idx_chat_messages_created_at on chat_messages (created_at desc);
 create index if not exists idx_session_report_exercises_report_id on session_report_exercises (report_id, sort_order);
 create index if not exists idx_session_report_meals_report_id on session_report_meals (report_id, sort_order);
+create index if not exists idx_nutrition_dishes_name on nutrition_dishes (name);
 create index if not exists idx_plan_snapshots_date on plan_snapshots ((snapshot->>'date'));
 create index if not exists idx_knowledge_chunks_title on knowledge_chunks using gin (to_tsvector('simple', title || ' ' || content));
 
@@ -125,6 +135,7 @@ alter table if exists public.daily_briefs enable row level security;
 alter table if exists public.session_reports enable row level security;
 alter table if exists public.session_report_exercises enable row level security;
 alter table if exists public.session_report_meals enable row level security;
+alter table if exists public.nutrition_dishes enable row level security;
 alter table if exists public.plan_adjustments enable row level security;
 alter table if exists public.memory_summaries enable row level security;
 alter table if exists public.plan_snapshots enable row level security;

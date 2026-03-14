@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { normalizeMealLog, normalizeStoredSessionReport } from "@/lib/session-report";
-import { sessionReportSchema } from "@/lib/validations";
+import { nutritionDishSchema, sessionReportSchema } from "@/lib/validations";
 
 describe("session report compatibility", () => {
   it("normalizes legacy meal log strings into structured entries", () => {
@@ -115,5 +115,48 @@ describe("session report compatibility", () => {
 
     expect(report.reportVersion).toBe(1);
     expect(report.mealLog?.dinner.content).toBe("面条");
+  });
+});
+
+describe("nutrition dish validation", () => {
+  it("accepts per-serving macros", () => {
+    const parsed = nutritionDishSchema.parse({
+      name: "鸡腿饭",
+      aliases: ["鸡排饭", "鸡腿盖饭"],
+      macros: {
+        proteinG: 28,
+        carbsG: 62,
+        fatsG: 14,
+      },
+    });
+    expect(parsed.name).toBe("鸡腿饭");
+  });
+
+  it("rejects non-positive macro totals", () => {
+    expect(() =>
+      nutritionDishSchema.parse({
+        name: "空菜品",
+        aliases: [],
+        macros: {
+          proteinG: 0,
+          carbsG: 0,
+          fatsG: 0,
+        },
+      }),
+    ).toThrow("至少填写一个大于 0 的宏量营养素。");
+  });
+
+  it("rejects negative macro values", () => {
+    expect(() =>
+      nutritionDishSchema.parse({
+        name: "错误菜品",
+        aliases: [],
+        macros: {
+          proteinG: -1,
+          carbsG: 12,
+          fatsG: 4,
+        },
+      }),
+    ).toThrow();
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 
 import { SectionCard } from "@/components/section-card";
 import {
@@ -14,6 +14,38 @@ import type { DashboardSnapshot, MealLogEntry, SessionReport } from "@/lib/types
 
 interface HistoryViewProps {
   snapshot: DashboardSnapshot;
+}
+
+type WeightTrendPoint = {
+  date: string;
+  weightKg: number;
+};
+
+function toWeightLabel(value: number) {
+  return `${Math.round(value * 10) / 10} kg`;
+}
+
+function toSignedWeightDelta(value: number) {
+  const rounded = Math.round(value * 10) / 10;
+  return `${rounded > 0 ? "+" : ""}${rounded} kg`;
+}
+
+function toDateLabel(date: string) {
+  return date.length >= 10 ? date.slice(5) : date;
+}
+
+function buildWeightTrend(reports: SessionReport[]) {
+  const byDate = new Map<string, WeightTrendPoint>();
+  for (const report of reports) {
+    if (!Number.isFinite(report.bodyWeightKg)) {
+      continue;
+    }
+    byDate.set(report.date, {
+      date: report.date,
+      weightKg: Number(report.bodyWeightKg),
+    });
+  }
+  return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
 }
 
 function summarizeMealLog(report: SessionReport) {
@@ -242,6 +274,38 @@ function renderReportBody(report: SessionReport) {
 }
 
 export function HistoryView({ snapshot }: HistoryViewProps) {
+  const weightTrend = useMemo(() => buildWeightTrend(snapshot.recentReports), [snapshot.recentReports]);
+  const weightChart = useMemo(() => {
+    if (!weightTrend.length) {
+      return null;
+    }
+
+    const width = 660;
+    const height = 240;
+    const padding = { top: 20, right: 24, bottom: 46, left: 54 };
+    const plotWidth = width - padding.left - padding.right;
+    const plotHeight = height - padding.top - padding.bottom;
+    const minWeight = Math.min(...weightTrend.map((item) => item.weightKg));
+    const maxWeight = Math.max(...weightTrend.map((item) => item.weightKg));
+    const rangePad = Math.max((maxWeight - minWeight) * 0.2, 0.4);
+    const displayMin = Math.max(0, Math.floor((minWeight - rangePad) * 10) / 10);
+    const displayMax = Math.ceil((maxWeight + rangePad) * 10) / 10;
+    const range = Math.max(displayMax - displayMin, 0.1);
+    const stepX = weightTrend.length > 1 ? plotWidth / (weightTrend.length - 1) : 0;
+
+    const points = weightTrend.map((item, index) => {
+      const x = padding.left + stepX * index;
+      const y = padding.top + ((displayMax - item.weightKg) / range) * plotHeight;
+      return { ...item, x, y };
+    });
+
+    const path = points
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+      .join(" ");
+
+    return { width, height, padding, displayMin, displayMax, points, path };
+  }, [weightTrend]);
+
   const [proposals, setProposals] = useState(snapshot.proposals);
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -302,6 +366,72 @@ export function HistoryView({ snapshot }: HistoryViewProps) {
       </SectionCard>
 
       <div className="space-y-5">
+        <SectionCard eyebrow="Weight" title="体重记录折线图" description="按日期展示最近汇报中的体重变化趋势。">
+          {!weightTrend.length ? (
+            <p className="text-sm text-black/55">还没有可用体重记录。</p>
+          ) : (
+            <div className="rounded-[22px] border border-black/10 bg-white/80 p-4">
+              {weightTrend.length >= 2 && weightChart ? (
+                <>
+                  <svg viewBox={`0 0 ${weightChart.width} ${weightChart.height}`} className="h-56 w-full">
+                    {Array.from({ length: 5 }).map((_, index) => {
+                      const ratio = index / 4;
+                      const y =
+                        weightChart.padding.top +
+                        ratio * (weightChart.height - weightChart.padding.top - weightChart.padding.bottom);
+                      const value = weightChart.displayMax - (weightChart.displayMax - weightChart.displayMin) * ratio;
+                      return (
+                        <g key={index}>
+                          <line
+                            x1={weightChart.padding.left}
+                            y1={y}
+                            x2={weightChart.width - weightChart.padding.right}
+                            y2={y}
+                            stroke="rgba(21,24,17,0.12)"
+                            strokeWidth="1"
+                          />
+                          <text
+                            x={weightChart.padding.left - 8}
+                            y={y + 4}
+                            textAnchor="end"
+                            className="fill-black/45 text-[10px]"
+                          >
+                            {value.toFixed(1)}
+                          </text>
+                        </g>
+                      );
+                    })}
+                    <path d={weightChart.path} fill="none" stroke="#151811" strokeWidth="2.8" strokeLinecap="round" />
+                    {weightChart.points.map((point) => (
+                      <g key={point.date}>
+                        <circle cx={point.x} cy={point.y} r="4.5" fill="#d5ff63" stroke="#151811" strokeWidth="1.5" />
+                        <text x={point.x} y={weightChart.height - 20} textAnchor="middle" className="fill-black/55 text-[10px]">
+                          {toDateLabel(point.date)}
+                        </text>
+                      </g>
+                    ))}
+                  </svg>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-black/62">
+                    <span className="rounded-full bg-[#f1ebd9] px-2.5 py-1">
+                      起点 {toWeightLabel(weightTrend[0].weightKg)}
+                    </span>
+                    <span className="rounded-full bg-[#f1ebd9] px-2.5 py-1">
+                      最新 {toWeightLabel(weightTrend[weightTrend.length - 1].weightKg)}
+                    </span>
+                    <span className="rounded-full bg-[#151811] px-2.5 py-1 text-white/80">
+                      变化 {toSignedWeightDelta(weightTrend[weightTrend.length - 1].weightKg - weightTrend[0].weightKg)}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="text-sm text-black/58">
+                  目前只有 1 条体重记录：{weightTrend[0].date} {toWeightLabel(weightTrend[0].weightKg)}。
+                </div>
+              )}
+            </div>
+          )}
+        </SectionCard>
+
         <SectionCard eyebrow="Summaries" title="记忆摘要" description="系统会从汇报中提炼出每天最重要的信号。">
           <div className="space-y-3">
             {snapshot.summaries.length ? (

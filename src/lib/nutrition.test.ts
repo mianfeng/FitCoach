@@ -56,6 +56,29 @@ describe("nutrition parser", () => {
     expect(result.analysisWarnings).toHaveLength(0);
   });
 
+  it("falls back to one serving when custom per-serving dish is logged with grams", () => {
+    const customDishes: NutritionDish[] = [
+      {
+        id: "dish-rice-box",
+        name: "一盒米饭",
+        aliases: ["盒饭米饭"],
+        macros: {
+          proteinG: 6,
+          carbsG: 75,
+          fatsG: 1,
+        },
+      },
+    ];
+    const result = parseMealText("一盒米饭270g", { customDishes });
+
+    expect(result.parsedItems).toHaveLength(1);
+    expect(result.parsedItems[0]?.name).toBe("一盒米饭");
+    expect(result.nutritionEstimate.calories).toBe(333);
+    expect(result.nutritionEstimate.proteinG).toBe(6);
+    expect(result.nutritionEstimate.carbsG).toBe(75);
+    expect(result.nutritionEstimate.fatsG).toBe(1);
+  });
+
   it("accumulates multiple foods in one text block", () => {
     const result = parseMealText("100g鱼肉，30g牛肉，350g米饭");
 
@@ -96,6 +119,15 @@ describe("nutrition parser", () => {
     expect(result.nutritionEstimate.proteinG).toBe(27.6);
     expect(result.nutritionEstimate.carbsG).toBe(4.8);
     expect(result.nutritionEstimate.fatsG).toBe(28.2);
+  });
+
+  it("parses chicken-leg rice components and avoids unknown inflation", () => {
+    const result = parseMealText("鸡腿饭，270g米饭，去皮鸡腿一只，一块豆干，一颗卤蛋");
+
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["米饭", "去皮鸡腿", "豆干", "卤蛋", "食用油"]);
+    expect(result.nutritionEstimate.calories).toBe(747.2);
+    expect(result.unknownTokens).toHaveLength(0);
+    expect(result.analysisWarnings.some((warning) => warning.includes("鸡腿饭"))).toBe(true);
   });
 
   it("uses inferred AI estimate for unknown tokens without warning", () => {

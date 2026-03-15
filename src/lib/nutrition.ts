@@ -88,6 +88,9 @@ const unitMap: Record<string, FoodPortionUnit> = {
   l: "ml",
   片: "slice",
   个: "piece",
+  只: "piece",
+  块: "piece",
+  颗: "piece",
   根: "piece",
   杯: "cup",
   碗: "bowl",
@@ -204,6 +207,18 @@ const foodLibrary: FoodLibraryItem[] = [
     defaultServing: { amount: 120, unit: "g", grams: 120 },
   },
   {
+    id: "chicken_leg_skinless",
+    name: "去皮鸡腿",
+    aliases: ["去皮鸡腿", "鸡腿", "鸡腿肉"],
+    category: "protein",
+    basis: "per100g",
+    calories: 170,
+    proteinG: 24,
+    carbsG: 0,
+    fatsG: 8,
+    defaultServing: { amount: 1, unit: "piece", grams: 150 },
+  },
+  {
     id: "beef",
     name: "牛肉",
     aliases: ["牛肉", "瘦牛肉"],
@@ -250,6 +265,30 @@ const foodLibrary: FoodLibraryItem[] = [
     carbsG: 6,
     fatsG: 0.3,
     defaultServing: { amount: 80, unit: "g", grams: 80 },
+  },
+  {
+    id: "tofu_dry",
+    name: "豆干",
+    aliases: ["豆干", "豆腐干"],
+    category: "protein",
+    basis: "per100g",
+    calories: 160,
+    proteinG: 17,
+    carbsG: 5,
+    fatsG: 8,
+    defaultServing: { amount: 1, unit: "piece", grams: 30 },
+  },
+  {
+    id: "marinated_egg",
+    name: "卤蛋",
+    aliases: ["卤蛋", "茶叶蛋"],
+    category: "protein",
+    basis: "perUnit",
+    calories: 78,
+    proteinG: 6.5,
+    carbsG: 1.3,
+    fatsG: 5.2,
+    defaultServing: { amount: 1, unit: "piece", grams: 55 },
   },
   {
     id: "milk",
@@ -362,6 +401,16 @@ const comboLibrary: ComboDefinition[] = [
       { foodId: "pork", amount: 120, unit: "g" },
       { foodId: "chili_pepper", amount: 80, unit: "g" },
       { foodId: "cooking_oil", amount: 10, unit: "g" },
+    ],
+  },
+  {
+    id: "chicken_leg_rice",
+    name: "鸡腿饭",
+    aliases: ["鸡腿饭", "鸡腿盖饭"],
+    components: [
+      { foodId: "chicken_leg_skinless", amount: 150, unit: "g" },
+      { foodId: "rice", amount: 250, unit: "g" },
+      { foodId: "cooking_oil", amount: 6, unit: "g" },
     ],
   },
 ];
@@ -509,8 +558,8 @@ function convertQuantityToMeasure(
 
 function parseQuantity(token: string, item: FoodLibraryItem): QuantityInfo {
   const normalized = token.replace(/\s+/g, "");
-  const numericMatches = [...normalized.matchAll(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l|片|个|根|杯|碗|份)/gi)];
-  const chineseMatch = normalized.match(/([半一二两三四五六七八九十])\s*(片|个|根|杯|碗|份)/);
+  const numericMatches = [...normalized.matchAll(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l|片|个|只|块|颗|根|杯|碗|份)/gi)];
+  const chineseMatch = normalized.match(/([半一二两三四五六七八九十])\s*(片|个|只|块|颗|根|杯|碗|份)/);
 
   const preferredMatch = numericMatches.find((match) => ["kg", "g", "ml", "l"].includes(match[2].toLowerCase())) ?? numericMatches[0];
   if (preferredMatch) {
@@ -574,6 +623,11 @@ function calculateNutrition(item: FoodLibraryItem, quantity: QuantityInfo): Nutr
       factor = quantity.grams / item.defaultServing.grams;
     } else if (quantity.milliliters && item.defaultServing.milliliters) {
       factor = quantity.milliliters / item.defaultServing.milliliters;
+    }
+    if (factor === 0 && quantity.explicit) {
+      // Per-serving foods written as grams/ml cannot be converted without serving-weight metadata.
+      // Fallback to one serving to avoid dropping to zero.
+      factor = 1;
     }
   }
 

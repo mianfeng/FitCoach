@@ -231,7 +231,8 @@ export async function inferUnknownMealTokensWithGemini(tokens: string[]): Promis
   const prompt = [
     "You are a nutrition estimator.",
     "Reply with pure JSON only. No markdown.",
-    "Estimate each food token as one serving if quantity is unknown.",
+    "If quantity is provided in token (e.g., 270g, 2个, 一只), estimate by that amount.",
+    "Only use one serving when quantity is not provided.",
     "Output JSON array with this shape:",
     `[{"token":"string","name":"string","calories":number,"proteinG":number,"carbsG":number,"fatsG":number}]`,
     "All nutrient values must be non-negative numbers.",

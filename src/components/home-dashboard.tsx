@@ -160,6 +160,19 @@ function buildReportDraft(
 }
 
 async function postJson<T>(url: string, payload: unknown) {
+  const parseResponseBody = (raw: string) => {
+    const normalized = raw
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/, "")
+      .replace(/^json\s*/i, "")
+      .trim();
+    if (!normalized) {
+      return null;
+    }
+    return JSON.parse(normalized) as unknown;
+  };
+
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -167,13 +180,29 @@ async function postJson<T>(url: string, payload: unknown) {
     },
     body: JSON.stringify(payload),
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: "Request failed" }));
-    throw new Error(error.error ?? "Request failed");
+  const rawBody = await response.text();
+  let parsedBody: unknown = null;
+  if (rawBody.trim()) {
+    try {
+      parsedBody = parseResponseBody(rawBody);
+    } catch (error) {
+      if (response.ok) {
+        const reason = error instanceof Error ? error.message : "Invalid JSON response";
+        throw new Error(`Server returned invalid JSON: ${reason}`);
+      }
+      throw new Error(`Request failed (${response.status})`);
+    }
   }
 
-  return (await response.json()) as T;
+  if (!response.ok) {
+    const errorMessage =
+      parsedBody && typeof parsedBody === "object" && "error" in parsedBody && typeof parsedBody.error === "string"
+        ? parsedBody.error
+        : "Request failed";
+    throw new Error(errorMessage);
+  }
+
+  return parsedBody as T;
 }
 
 function buildInitialCoachReply(snapshot: DashboardSnapshot, existingReport?: SessionReport): CoachReplyState {

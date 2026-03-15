@@ -22,6 +22,49 @@ function stripCodeFence(input: string) {
   return input.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
 }
 
+function normalizeJsonLikeModelOutput(input: string) {
+  const normalized = stripCodeFence(input).trim();
+  return normalized.replace(/^json\s*/i, "").trim();
+}
+
+function tryParseJsonCandidate(input: string) {
+  try {
+    return JSON.parse(input) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseJsonLikeModelOutput(input: string) {
+  const normalized = normalizeJsonLikeModelOutput(input);
+  const direct = tryParseJsonCandidate(normalized);
+  if (direct !== undefined) {
+    return direct;
+  }
+
+  const firstObject = normalized.indexOf("{");
+  const lastObject = normalized.lastIndexOf("}");
+  if (firstObject >= 0 && lastObject > firstObject) {
+    const objectCandidate = normalized.slice(firstObject, lastObject + 1).trim();
+    const objectParsed = tryParseJsonCandidate(objectCandidate);
+    if (objectParsed !== undefined) {
+      return objectParsed;
+    }
+  }
+
+  const firstArray = normalized.indexOf("[");
+  const lastArray = normalized.lastIndexOf("]");
+  if (firstArray >= 0 && lastArray > firstArray) {
+    const arrayCandidate = normalized.slice(firstArray, lastArray + 1).trim();
+    const arrayParsed = tryParseJsonCandidate(arrayCandidate);
+    if (arrayParsed !== undefined) {
+      return arrayParsed;
+    }
+  }
+
+  throw new Error("AI response is not valid JSON.");
+}
+
 function hasStrictCoachShape(input: string) {
   const normalized = stripCodeFence(input);
   return (
@@ -237,8 +280,7 @@ export async function computeMealLogNutritionWithGemini(params: {
 
   try {
     const result = await model.generateContent(prompt);
-    const text = stripCodeFence(result.response.text());
-    const parsed = JSON.parse(text) as unknown;
+    const parsed = parseJsonLikeModelOutput(result.response.text());
     if (!parsed || typeof parsed !== "object") {
       return pendingNutritionResult(params.mealLog, "AI 返回格式无效。");
     }
@@ -522,8 +564,7 @@ export async function inferUnknownMealTokensWithGemini(tokens: string[]): Promis
 
   try {
     const result = await model.generateContent(prompt);
-    const text = stripCodeFence(result.response.text());
-    const parsed = JSON.parse(text) as unknown;
+    const parsed = parseJsonLikeModelOutput(result.response.text());
     if (!Array.isArray(parsed)) {
       return [];
     }

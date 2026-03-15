@@ -112,18 +112,22 @@ export async function POST(request: Request) {
       targetMacros: reviewBrief.mealPrescription.macros,
       nextDayDecision,
     });
-    const review =
-      (await generateGeminiDailyReview({
-        report: {
-          ...previewReport,
-          nextDayDecision,
-        },
-        targetMacros: reviewBrief.mealPrescription.macros,
-        planLabel: reviewBrief.calendarLabel,
-        workoutTitle: reviewBrief.workoutPrescription.title,
-        draftReview: fallbackReview,
-      })) ??
-      fallbackReview;
+    let review = fallbackReview;
+    try {
+      review =
+        (await generateGeminiDailyReview({
+          report: {
+            ...previewReport,
+            nextDayDecision,
+          },
+          targetMacros: reviewBrief.mealPrescription.macros,
+          planLabel: reviewBrief.calendarLabel,
+          workoutTitle: reviewBrief.workoutPrescription.title,
+          draftReview: fallbackReview,
+        })) ?? fallbackReview;
+    } catch {
+      review = fallbackReview;
+    }
     const report = {
       id: uid("report"),
       createdAt: new Date().toISOString(),

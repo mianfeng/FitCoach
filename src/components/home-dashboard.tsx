@@ -179,7 +179,7 @@ async function postJson<T>(url: string, payload: unknown) {
 function buildInitialCoachReply(snapshot: DashboardSnapshot, existingReport?: SessionReport): CoachReplyState {
   if (existingReport?.dailyReviewMarkdown) {
     return {
-      title: "浠婃棩鐐硅瘎",
+      title: "今日点评",
       content: existingReport.dailyReviewMarkdown,
       basis: [],
       contextSummary: snapshot.plan.goal,
@@ -351,7 +351,7 @@ export function HomeDashboard({
       try {
         const data = await postJson<CoachChatResponse>("/api/assistant/chat", { message });
         setCoachReply({
-          title: "鏁欑粌鍥炵瓟",
+          title: "教练回答",
           content: data.answer,
           basis: data.basis,
           contextSummary: data.contextSummary,
@@ -371,7 +371,7 @@ export function HomeDashboard({
 
   async function handleSubmitReport() {
     setIsSubmitting(true);
-    setFeedback({ tone: "info", message: "姝ｅ湪淇濆瓨浠婃棩璁板綍骞剁敓鎴愮偣璇?.." });
+    setFeedback({ tone: "info", message: "正在保存今日记录并生成点评..." });
 
     try {
       const payload: ReportDraft = {
@@ -597,7 +597,7 @@ export function HomeDashboard({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Workout Execution</div>
-                <h3 className="mt-1 text-lg font-semibold text-[#151811]">鍔ㄤ綔鎵ц</h3>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">动作执行</h3>
               </div>
               <div className="w-fit rounded-full bg-[#d5ff63] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-[#151811]">
                 {todayBrief.calendarLabel}
@@ -621,7 +621,7 @@ export function HomeDashboard({
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-[#151811]">{exercise.exerciseName}</div>
                         <div className="mt-1 text-xs text-black/52">
-                          鐩爣 {exercise.targetSets} x {exercise.targetReps}
+                          目标 {exercise.targetSets} x {exercise.targetReps}
                         </div>
                       </div>
                       <label className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-[#151811]">
@@ -639,13 +639,13 @@ export function HomeDashboard({
                           }
                           className="h-4 w-4 accent-[#151811]"
                         />
-                        宸叉墽琛?
+                        已执行
                       </label>
                     </div>
 
                     <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                       <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">瀹為檯缁勬暟</span>
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">实际组数</span>
                         <input
                           type="number"
                           min="0"
@@ -655,7 +655,7 @@ export function HomeDashboard({
                         />
                       </label>
                       <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">瀹為檯娆℃暟</span>
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">实际次数</span>
                         <input
                           value={exercise.actualReps}
                           onChange={(event) => updateExercise(index, { actualReps: event.target.value })}
@@ -663,7 +663,7 @@ export function HomeDashboard({
                         />
                       </label>
                       <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">椤剁粍閲嶉噺 kg</span>
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">顶组重量 kg</span>
                         <input
                           type="number"
                           step="0.5"
@@ -697,12 +697,12 @@ export function HomeDashboard({
                           onChange={(event) => updateExercise(index, { droppedSets: event.target.checked })}
                           className="h-4 w-4 accent-[#151811]"
                         />
-                        鏈夋帀缁?/ 鏄庢樉鎺夐€?
+                        有掉组 / 明显掉速
                       </label>
                     </div>
 
                     <label className="mt-3 block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                      <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">鍔ㄤ綔澶囨敞</span>
+                      <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">动作备注</span>
                       <textarea
                         rows={2}
                         value={exercise.notes ?? ""}
@@ -723,7 +723,7 @@ export function HomeDashboard({
 
           <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
             <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Meal Execution</div>
-            <h3 className="mt-1 text-lg font-semibold text-[#151811]">椁愭鎵ц</h3>
+            <h3 className="mt-1 text-lg font-semibold text-[#151811]">餐次执行</h3>
             <div className="mt-4 flex flex-wrap gap-2">
               {POST_WORKOUT_SOURCE_OPTIONS.map((option) => (
                 <button
@@ -754,10 +754,10 @@ export function HomeDashboard({
                     )}
                   </div>
                   <div className="mt-2 grid gap-2 text-xs text-black/58 sm:grid-cols-2">
-                    <div>鐑噺宸€?{formatGapValue(existingReport.nutritionGap.calories, "kcal")}</div>
-                    <div>铔嬬櫧宸€?{formatGapValue(existingReport.nutritionGap.proteinG, "g")}</div>
-                    <div>纰虫按宸€?{formatGapValue(existingReport.nutritionGap.carbsG, "g")}</div>
-                    <div>鑴傝偑宸€?{formatGapValue(existingReport.nutritionGap.fatsG, "g")}</div>
+                    <div>热量差值 {formatGapValue(existingReport.nutritionGap.calories, "kcal")}</div>
+                    <div>蛋白差值 {formatGapValue(existingReport.nutritionGap.proteinG, "g")}</div>
+                    <div>碳水差值 {formatGapValue(existingReport.nutritionGap.carbsG, "g")}</div>
+                    <div>脂肪差值 {formatGapValue(existingReport.nutritionGap.fatsG, "g")}</div>
                   </div>
                 </>
               ) : (
@@ -802,7 +802,7 @@ export function HomeDashboard({
                         ) : null}
                         {isMirroredPostWorkout ? (
                           <span className="rounded-full bg-[#151811] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/74">
-                            璺熼殢
+                            跟随
                             {previewMealLog.postWorkoutSource === "lunch"
                               ? mealSlotLabels.lunch
                               : mealSlotLabels.dinner}
@@ -822,7 +822,7 @@ export function HomeDashboard({
                       }
                       disabled={isMirroredPostWorkout}
                       className="mt-3 w-full rounded-[14px] border border-black/10 bg-white px-3 py-2.5 text-sm leading-6 outline-none disabled:opacity-50"
-                      placeholder={`杈撳叆${field.label}锛屼緥濡傦細楦℃帓楗?100g楦℃帓 250g绫抽キ 1鍕鸿泲鐧界矇30g`}
+                      placeholder={`输入${field.label}，例如：鸡排饭 100g鸡排 250g米饭 1勺蛋白粉30g`}
                     />
 
                     {currentEntry.content.trim() ? (
@@ -875,11 +875,11 @@ export function HomeDashboard({
 
           <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
             <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Recovery Signals</div>
-            <h3 className="mt-1 text-lg font-semibold text-[#151811]">鎭㈠鎸囨爣</h3>
+            <h3 className="mt-1 text-lg font-semibold text-[#151811]">恢复指标</h3>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">浣撻噸 kg</span>
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">体重 kg</span>
                 <input
                   type="number"
                   step="0.1"
@@ -891,7 +891,7 @@ export function HomeDashboard({
                 />
               </label>
               <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">鐫＄湢 h</span>
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">睡眠 h</span>
                 <input
                   type="number"
                   step="0.5"
@@ -903,7 +903,7 @@ export function HomeDashboard({
                 />
               </label>
               <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">鐤插姵 1-10</span>
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">疲劳 1-10</span>
                 <input
                   type="number"
                   min="1"
@@ -928,7 +928,7 @@ export function HomeDashboard({
                 />
               </label>
               <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">鎭㈠澶囨敞</span>
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">恢复备注</span>
                 <textarea
                   rows={3}
                   value={reportDraft.recoveryNote}
@@ -944,20 +944,20 @@ export function HomeDashboard({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Summary Note</div>
-                <h3 className="mt-1 text-lg font-semibold text-[#151811]">鎬荤粨澶囨敞</h3>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">总结备注</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAdvanced((current) => !current)}
                 className="rounded-full border border-black/10 bg-[#f7f3e8] px-3 py-2 text-xs font-semibold text-[#151811]"
               >
-                {showAdvanced ? "鏀惰捣鎻愮ず" : "灞曞紑鎻愮ず"}
+                {showAdvanced ? "收起提示" : "展开提示"}
               </button>
             </div>
 
             {showAdvanced ? (
               <div className="mt-3 rounded-[18px] border border-black/10 bg-[#faf7ef] px-4 py-3 text-sm leading-6 text-black/58">
-                杩欓噷琛ュ厖浠婂ぉ鏈€閲嶈鐨勪笂涓嬫枃锛屾瘮濡備复鏃舵崲鍔ㄤ綔銆佺姸鎬佸紓甯搞€佹椂闂撮敊浣嶃€佽缁冭妭濂忓拰浣犺涓烘槑澶╅渶瑕佽浣忕殑浜嬨€?
+                这里补充今天最重要的上下文，比如临时换动作、状态异常、时间错位、训练节奏和你认为明天需要记住的事。
               </div>
             ) : null}
 
@@ -994,10 +994,10 @@ export function HomeDashboard({
               {submissionMode === "completed" ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#151811]/25 border-t-[#151811]" />
-                  <span>鎻愪氦涓?..</span>
+                  <span>提交中...</span>
                 </>
               ) : (
-                "鎻愪氦浠婃棩姹囨姤"
+                "提交今日汇报"
               )}
             </button>
           </div>
@@ -1013,11 +1013,11 @@ export function HomeDashboard({
           <div className="hidden rounded-[26px] bg-[#151811] p-5 text-white shadow-[0_24px_60px_rgba(18,22,16,0.22)]">
             <div className="text-[11px] uppercase tracking-[0.28em] text-white/42">Context</div>
             <div className="mt-3 rounded-[20px] border border-white/10 bg-white/6 px-4 py-4">
-              <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">褰撳墠璁″垝鎽樿</div>
+              <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">当前计划摘要</div>
               <p className="mt-2 text-sm leading-7 text-white/78">{coachReply.contextSummary ?? snapshot.plan.goal}</p>
             </div>
             <div className="mt-3 rounded-[20px] border border-white/10 bg-white/6 px-4 py-4">
-              <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">瑙掕壊鍘熷垯</div>
+              <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">角色原则</div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {snapshot.persona.corePrinciples.map((item) => (
                   <span key={item} className="rounded-full border border-white/10 bg-white/8 px-3 py-1.5 text-xs text-white/70">
@@ -1066,7 +1066,7 @@ export function HomeDashboard({
                 <div className="mt-4 flex flex-wrap gap-2">
                   {coachReply.basis.map((basis) => (
                     <span key={`${basis.type}-${basis.label}`} className="rounded-full bg-[#f1ebd9] px-3 py-1.5 text-xs text-black/58">
-                      {basis.type} 路 {basis.label}
+                      {basis.type} · {basis.label}
                     </span>
                   ))}
                 </div>

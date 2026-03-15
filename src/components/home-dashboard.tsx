@@ -1,10 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { SectionCard } from "@/components/section-card";
-import { summarizeReportNutrition } from "@/lib/nutrition";
 import { buildMealLogForSubmit, countFilledMealSlots, createEmptyMealLog, mealSlotLabels } from "@/lib/session-report";
 import type { ChatMessage, DashboardSnapshot, DailyBrief, ExerciseResult, MealLog, SessionReport } from "@/lib/types";
 
@@ -58,8 +57,8 @@ const REPORT_FEEDBACK_KEY = "fitcoach:report-feedback";
 
 const POST_WORKOUT_SOURCE_OPTIONS: Array<{ value: MealLog["postWorkoutSource"]; label: string }> = [
   { value: "dedicated", label: "独立练后餐" },
-  { value: "lunch", label: "午餐同时是练后餐" },
-  { value: "dinner", label: "晚餐同时是练后餐" },
+  { value: "lunch", label: "午餐同时作为练后餐" },
+  { value: "dinner", label: "晚餐同时作为练后餐" },
 ];
 
 const MEAL_SLOTS: Array<{ key: keyof Omit<MealLog, "postWorkoutSource">; label: string }> = [
@@ -180,7 +179,7 @@ async function postJson<T>(url: string, payload: unknown) {
 function buildInitialCoachReply(snapshot: DashboardSnapshot, existingReport?: SessionReport): CoachReplyState {
   if (existingReport?.dailyReviewMarkdown) {
     return {
-      title: "今日点评",
+      title: "浠婃棩鐐硅瘎",
       content: existingReport.dailyReviewMarkdown,
       basis: [],
       contextSummary: snapshot.plan.goal,
@@ -195,7 +194,7 @@ function buildInitialCoachReply(snapshot: DashboardSnapshot, existingReport?: Se
   const latestAssistant = [...snapshot.chatMessages].reverse().find((message) => message.role === "assistant");
   if (latestAssistant) {
     return {
-      title: "最近一次教练回答",
+      title: "最近一次教练回复",
       content: latestAssistant.content,
       basis: latestAssistant.basis,
       contextSummary: snapshot.plan.goal,
@@ -205,7 +204,7 @@ function buildInitialCoachReply(snapshot: DashboardSnapshot, existingReport?: Se
 
   return {
     title: "教练问答",
-    content: "这里可以问训练理论、饮食策略、恢复安排。提交今日汇报后，这里也会自动显示当天点评。",
+    content: "这里可以问训练理论、饮食策略和恢复安排。提交今日汇报后，这里也会自动显示当天点评。",
     basis: [],
     contextSummary: snapshot.persona.mission,
     source: "coach",
@@ -237,27 +236,28 @@ export function HomeDashboard({
   const [coachReply, setCoachReply] = useState<CoachReplyState>(() => buildInitialCoachReply(snapshot, existingReport));
   const [reportDraft, setReportDraft] = useState(() => buildReportDraft(todayBrief, snapshot, today, existingReport));
   const [hasExerciseEdits, setHasExerciseEdits] = useState(() => Boolean(existingReport?.exerciseResults?.length));
+  const [mealLogDirty, setMealLogDirty] = useState(false);
   const isSubmitting = submissionMode !== null;
   const setIsSubmitting = (value: boolean) => setSubmissionMode(value ? "completed" : null);
-  const nutritionTarget = {
-    calories:
-      todayBrief.mealPrescription.macros.proteinG * 4 +
-      todayBrief.mealPrescription.macros.carbsG * 4 +
-      todayBrief.mealPrescription.macros.fatsG * 9,
-    proteinG: todayBrief.mealPrescription.macros.proteinG,
-    carbsG: todayBrief.mealPrescription.macros.carbsG,
-    fatsG: todayBrief.mealPrescription.macros.fatsG,
-  };
-  const nutritionPreview = summarizeReportNutrition(reportDraft.mealLog, nutritionTarget, {
-    customDishes: snapshot.nutritionDishes,
-  });
-  const previewMealLog = nutritionPreview.mealLog ?? reportDraft.mealLog;
+  const hasMealContent = MEAL_SLOTS.some((slot) => reportDraft.mealLog[slot.key].content.trim().length > 0);
+  const hasReadyNutrition =
+    !mealLogDirty &&
+    existingReport?.nutritionComputation?.status === "ready" &&
+    Boolean(existingReport.nutritionTotals) &&
+    Boolean(existingReport.nutritionGap);
+  const nutritionPendingMessage = hasMealContent
+    ? mealLogDirty
+      ? "Meal content changed. Save again to trigger AI recomputation."
+      : existingReport?.nutritionWarnings?.[0] ?? "Nutrition is pending AI computation. Please retry save later."
+    : "After entering meals, save draft or submit to trigger AI computation.";
+  const previewMealLog = reportDraft.mealLog;
 
   useEffect(() => {
     const report = snapshot.recentReports.find((item) => item.date === today);
     setReportDraft(buildReportDraft(todayBrief, snapshot, today, report));
     setCoachReply(buildInitialCoachReply(snapshot, report));
     setHasExerciseEdits(Boolean(report?.exerciseResults?.length));
+    setMealLogDirty(false);
     setShowAdvanced(false);
   }, [snapshot, today, todayBrief]);
 
@@ -294,6 +294,7 @@ export function HomeDashboard({
     field: keyof Omit<MealLog, "postWorkoutSource">,
     patch: Partial<MealLog[keyof Omit<MealLog, "postWorkoutSource">]>,
   ) {
+    setMealLogDirty(true);
     setReportDraft((current) => ({
       ...current,
       mealLog: {
@@ -301,12 +302,17 @@ export function HomeDashboard({
         [field]: {
           ...current.mealLog[field],
           ...patch,
+          // The AI result is stale once content is edited.
+          ...(Object.prototype.hasOwnProperty.call(patch, "content")
+            ? { parsedItems: [], nutritionEstimate: undefined, analysisWarnings: [] }
+            : {}),
         },
       },
     }));
   }
 
   function updatePostWorkoutSource(source: MealLog["postWorkoutSource"]) {
+    setMealLogDirty(true);
     setReportDraft((current) => ({
       ...current,
       mealLog: {
@@ -345,7 +351,7 @@ export function HomeDashboard({
       try {
         const data = await postJson<CoachChatResponse>("/api/assistant/chat", { message });
         setCoachReply({
-          title: "教练回答",
+          title: "鏁欑粌鍥炵瓟",
           content: data.answer,
           basis: data.basis,
           contextSummary: data.contextSummary,
@@ -353,8 +359,8 @@ export function HomeDashboard({
         });
       } catch (error) {
         setCoachReply({
-          title: "教练回答失败",
-          content: error instanceof Error ? error.message : "问答失败，请稍后重试。",
+          title: "Coach reply failed",
+          content: error instanceof Error ? error.message : "Request failed. Please retry later.",
           basis: [],
           contextSummary: snapshot.plan.goal,
           source: "error",
@@ -365,7 +371,7 @@ export function HomeDashboard({
 
   async function handleSubmitReport() {
     setIsSubmitting(true);
-    setFeedback({ tone: "info", message: "正在保存今日记录并生成点评..." });
+    setFeedback({ tone: "info", message: "姝ｅ湪淇濆瓨浠婃棩璁板綍骞剁敓鎴愮偣璇?.." });
 
     try {
       const payload: ReportDraft = {
@@ -381,10 +387,10 @@ export function HomeDashboard({
       const data = await postJson<SessionReportResponse>("/api/session-report", payload);
       const successFeedback = {
         tone: "success",
-        message: "今日记录已保存，点评已更新。",
+        message: "Today report saved. Review updated.",
       } satisfies FeedbackState;
       const reviewCard = {
-        title: `${todayBrief.calendarLabel} 今日点评`,
+        title: `${todayBrief.calendarLabel} Daily Review`,
         content: data.review ?? "",
         source: "review" as const,
       };
@@ -404,12 +410,13 @@ export function HomeDashboard({
         contextSummary: snapshot.plan.goal,
         source: "review",
       });
-      setFeedback({ tone: "success", message: "今日记录已保存，正在同步最新数据..." });
+      setMealLogDirty(false);
+      setFeedback({ tone: "success", message: "Today report saved. Refreshing latest state..." });
       router.refresh();
     } catch (error) {
       setFeedback({
         tone: "error",
-        message: error instanceof Error ? error.message : "提交失败，请稍后重试。",
+        message: error instanceof Error ? error.message : "Submit failed. Please retry later.",
       });
     } finally {
       setIsSubmitting(false);
@@ -468,6 +475,7 @@ export function HomeDashboard({
         contextSummary: snapshot.plan.goal,
         source: draftCard.source,
       });
+      setMealLogDirty(false);
       setFeedback({ tone: "success", message: "Draft saved. Refreshing the latest state..." });
       router.refresh();
     } catch (error) {
@@ -492,16 +500,16 @@ export function HomeDashboard({
       {isHistorical ? (
         <SectionCard
           eyebrow="History"
-          title={`补报 ${todayBrief.calendarLabel}`}
+          title={`Backfill ${todayBrief.calendarLabel}`}
           description={
             historyMissingSnapshot
-              ? "该日期缺少历史计划快照，当前先按正式计划日历回推展示。"
-              : "你正在查看历史日期的正式计划，可以直接补充当天汇报。"
+              ? "No historical plan snapshot for this date. Showing fallback schedule."
+              : "You are viewing a historical date and can backfill that day's report directly."
           }
           className="bg-[rgba(249,247,235,0.96)]"
         >
           <div className="rounded-[20px] border border-black/10 bg-[#151811] px-4 py-3 text-sm text-white/78">
-            当前日期：{today} {todayBrief.isRestDay ? "· 休息日" : ""}
+            {`Current date: ${today}${todayBrief.isRestDay ? " · Rest day" : ""}`}
           </div>
         </SectionCard>
       ) : null}
@@ -522,9 +530,11 @@ export function HomeDashboard({
                     </div>
                     <div className="text-xs leading-5 text-white/58 sm:text-sm">
                       {todayBrief.isRestDay
-                        ? "休息日饮食与恢复计划"
-                        : `${todayBrief.calendarSlot} 日训练 · ${
-                            todayBrief.mealPrescription.dayType === "rest" ? "休息日饮食" : "训练日饮食"
+                        ? "Rest-day nutrition and recovery"
+                        : `${todayBrief.calendarSlot} training · ${
+                            todayBrief.mealPrescription.dayType === "rest"
+                              ? "rest-day nutrition"
+                              : "training-day nutrition"
                           }`}
                     </div>
                   </div>
@@ -563,8 +573,8 @@ export function HomeDashboard({
 
       <SectionCard
         eyebrow="Execution"
-        title="今日计划与记录"
-        description="按动作、餐次、恢复和总结四块提交日报。训练日必须记录动作执行，点评会直接给出明天怎么做。"
+        title="Today's plan and log"
+        description="Submit your report from four blocks: training, meals, recovery, and summary."
       >
         <div className="space-y-4">
           {feedback ? (
@@ -587,7 +597,7 @@ export function HomeDashboard({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Workout Execution</div>
-                <h3 className="mt-1 text-lg font-semibold text-[#151811]">动作执行</h3>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">鍔ㄤ綔鎵ц</h3>
               </div>
               <div className="w-fit rounded-full bg-[#d5ff63] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-[#151811]">
                 {todayBrief.calendarLabel}
@@ -596,8 +606,8 @@ export function HomeDashboard({
 
             <div className="mt-2 text-sm leading-6 text-black/54">
               {todayBrief.isRestDay
-                ? "今天是休息日，不需要填写动作执行，直接补餐次、恢复和总结即可。"
-                : "按处方逐个回填实际完成情况，动作完成度会直接进入点评和次日建议。"}
+                ? "Today is a rest day. No exercise execution input is required."
+                : "Fill each exercise with actual completion data for today's report."}
             </div>
 
             <div className="mt-4 space-y-3">
@@ -611,7 +621,7 @@ export function HomeDashboard({
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-[#151811]">{exercise.exerciseName}</div>
                         <div className="mt-1 text-xs text-black/52">
-                          目标 {exercise.targetSets} x {exercise.targetReps}
+                          鐩爣 {exercise.targetSets} x {exercise.targetReps}
                         </div>
                       </div>
                       <label className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-[#151811]">
@@ -629,13 +639,13 @@ export function HomeDashboard({
                           }
                           className="h-4 w-4 accent-[#151811]"
                         />
-                        已执行
+                        宸叉墽琛?
                       </label>
                     </div>
 
                     <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                       <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">实际组数</span>
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">瀹為檯缁勬暟</span>
                         <input
                           type="number"
                           min="0"
@@ -645,7 +655,7 @@ export function HomeDashboard({
                         />
                       </label>
                       <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">实际次数</span>
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">瀹為檯娆℃暟</span>
                         <input
                           value={exercise.actualReps}
                           onChange={(event) => updateExercise(index, { actualReps: event.target.value })}
@@ -653,7 +663,7 @@ export function HomeDashboard({
                         />
                       </label>
                       <label className="block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">顶组重量 kg</span>
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">椤剁粍閲嶉噺 kg</span>
                         <input
                           type="number"
                           step="0.5"
@@ -687,25 +697,25 @@ export function HomeDashboard({
                           onChange={(event) => updateExercise(index, { droppedSets: event.target.checked })}
                           className="h-4 w-4 accent-[#151811]"
                         />
-                        有掉组 / 明显掉速
+                        鏈夋帀缁?/ 鏄庢樉鎺夐€?
                       </label>
                     </div>
 
                     <label className="mt-3 block rounded-[16px] border border-black/10 bg-white px-3 py-3">
-                      <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">动作备注</span>
+                      <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">鍔ㄤ綔澶囨敞</span>
                       <textarea
                         rows={2}
                         value={exercise.notes ?? ""}
                         onChange={(event) => updateExercise(index, { notes: event.target.value })}
                         className="mt-2 w-full resize-none bg-transparent text-sm leading-6 text-[#151811] outline-none"
-                        placeholder="比如：最后两组速度掉得快、肩前侧顶、改成了器械版本。"
+                        placeholder="Example: last two sets slowed down, shoulder discomfort, swapped equipment version."
                       />
                     </label>
                   </article>
                 ))
               ) : (
                 <div className="rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4 text-sm leading-6 text-black/60">
-                  今天对应休息日，建议完成轻量活动、拉伸和休息日饮食，不安排训练动作。
+                  Today is mapped to a rest day. Prioritize light activity, mobility, and recovery nutrition.
                 </div>
               )}
             </div>
@@ -713,7 +723,7 @@ export function HomeDashboard({
 
           <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
             <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Meal Execution</div>
-            <h3 className="mt-1 text-lg font-semibold text-[#151811]">餐次执行</h3>
+            <h3 className="mt-1 text-lg font-semibold text-[#151811]">椁愭鎵ц</h3>
             <div className="mt-4 flex flex-wrap gap-2">
               {POST_WORKOUT_SOURCE_OPTIONS.map((option) => (
                 <button
@@ -733,23 +743,32 @@ export function HomeDashboard({
 
             <div className="mt-4 rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4">
               <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Nutrition Preview</div>
-              <div className="mt-2 text-sm font-semibold text-[#151811]">
-                {formatNutritionSummary(
-                  nutritionPreview.nutritionTotals.calories,
-                  nutritionPreview.nutritionTotals.proteinG,
-                  nutritionPreview.nutritionTotals.carbsG,
-                  nutritionPreview.nutritionTotals.fatsG,
-                )}
-              </div>
-              <div className="mt-2 grid gap-2 text-xs text-black/58 sm:grid-cols-2">
-                <div>热量差值 {formatGapValue(nutritionPreview.nutritionGap.calories, "kcal")}</div>
-                <div>蛋白差值 {formatGapValue(nutritionPreview.nutritionGap.proteinG, "g")}</div>
-                <div>碳水差值 {formatGapValue(nutritionPreview.nutritionGap.carbsG, "g")}</div>
-                <div>脂肪差值 {formatGapValue(nutritionPreview.nutritionGap.fatsG, "g")}</div>
-              </div>
-              {nutritionPreview.nutritionWarnings.length ? (
+              {hasReadyNutrition && existingReport?.nutritionTotals && existingReport.nutritionGap ? (
+                <>
+                  <div className="mt-2 text-sm font-semibold text-[#151811]">
+                    {formatNutritionSummary(
+                      existingReport.nutritionTotals.calories,
+                      existingReport.nutritionTotals.proteinG,
+                      existingReport.nutritionTotals.carbsG,
+                      existingReport.nutritionTotals.fatsG,
+                    )}
+                  </div>
+                  <div className="mt-2 grid gap-2 text-xs text-black/58 sm:grid-cols-2">
+                    <div>鐑噺宸€?{formatGapValue(existingReport.nutritionGap.calories, "kcal")}</div>
+                    <div>铔嬬櫧宸€?{formatGapValue(existingReport.nutritionGap.proteinG, "g")}</div>
+                    <div>纰虫按宸€?{formatGapValue(existingReport.nutritionGap.carbsG, "g")}</div>
+                    <div>鑴傝偑宸€?{formatGapValue(existingReport.nutritionGap.fatsG, "g")}</div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="mt-2 text-sm font-semibold text-[#151811]">待 AI 计算</div>
+                  <div className="mt-2 text-xs leading-5 text-black/58">{nutritionPendingMessage}</div>
+                </>
+              )}
+              {!mealLogDirty && existingReport?.nutritionWarnings?.length ? (
                 <div className="mt-3 space-y-1 text-[11px] leading-5 text-[#8a5a1f]">
-                  {nutritionPreview.nutritionWarnings.map((warning) => (
+                  {existingReport.nutritionWarnings.map((warning) => (
                     <div key={warning}>{warning}</div>
                   ))}
                 </div>
@@ -783,7 +802,7 @@ export function HomeDashboard({
                         ) : null}
                         {isMirroredPostWorkout ? (
                           <span className="rounded-full bg-[#151811] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/74">
-                            跟随
+                            璺熼殢
                             {previewMealLog.postWorkoutSource === "lunch"
                               ? mealSlotLabels.lunch
                               : mealSlotLabels.dinner}
@@ -803,40 +822,49 @@ export function HomeDashboard({
                       }
                       disabled={isMirroredPostWorkout}
                       className="mt-3 w-full rounded-[14px] border border-black/10 bg-white px-3 py-2.5 text-sm leading-6 outline-none disabled:opacity-50"
-                      placeholder={`输入${field.label}，例如：鸡排饭 100g鸡排 250g米饭 1勺蛋白粉30g`}
+                      placeholder={`杈撳叆${field.label}锛屼緥濡傦細楦℃帓楗?100g楦℃帓 250g绫抽キ 1鍕鸿泲鐧界矇30g`}
                     />
 
                     {currentEntry.content.trim() ? (
                       <div className="mt-3 rounded-[16px] border border-black/10 bg-white px-3 py-3">
                         <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Parsed Nutrition</div>
-                        <div className="mt-2 text-sm font-medium text-[#151811]">
-                          {formatNutritionSummary(
-                            currentEntry.nutritionEstimate?.calories ?? 0,
-                            currentEntry.nutritionEstimate?.proteinG ?? 0,
-                            currentEntry.nutritionEstimate?.carbsG ?? 0,
-                            currentEntry.nutritionEstimate?.fatsG ?? 0,
-                          )}
-                        </div>
-                        {currentEntry.parsedItems?.length ? (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {currentEntry.parsedItems.map((item) => (
-                              <span
-                                key={`${field.key}-${item.name}-${item.sourceText}`}
-                                className="rounded-full bg-[#f1ebd9] px-2 py-1 text-[10px] text-black/62"
-                              >
-                                {item.name}
-                                {item.grams ? ` ${item.grams}g` : item.milliliters ? ` ${item.milliliters}ml` : ""}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                        {currentEntry.analysisWarnings?.length ? (
-                          <div className="mt-2 space-y-1 text-[11px] leading-5 text-[#8a5a1f]">
-                            {currentEntry.analysisWarnings.map((warning) => (
-                              <div key={`${field.key}-${warning}`}>{warning}</div>
-                            ))}
-                          </div>
-                        ) : null}
+                        {hasReadyNutrition && currentEntry.nutritionEstimate ? (
+                          <>
+                            <div className="mt-2 text-sm font-medium text-[#151811]">
+                              {formatNutritionSummary(
+                                currentEntry.nutritionEstimate.calories,
+                                currentEntry.nutritionEstimate.proteinG,
+                                currentEntry.nutritionEstimate.carbsG,
+                                currentEntry.nutritionEstimate.fatsG,
+                              )}
+                            </div>
+                            {currentEntry.parsedItems?.length ? (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {currentEntry.parsedItems.map((item) => (
+                                  <span
+                                    key={`${field.key}-${item.name}-${item.sourceText}`}
+                                    className="rounded-full bg-[#f1ebd9] px-2 py-1 text-[10px] text-black/62"
+                                  >
+                                    {item.name}
+                                    {item.grams ? ` ${item.grams}g` : item.milliliters ? ` ${item.milliliters}ml` : ""}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            {currentEntry.analysisWarnings?.length ? (
+                              <div className="mt-2 space-y-1 text-[11px] leading-5 text-[#8a5a1f]">
+                                {currentEntry.analysisWarnings.map((warning) => (
+                                  <div key={`${field.key}-${warning}`}>{warning}</div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </>
+                        ) : (
+                          <>
+                            <div className="mt-2 text-sm font-medium text-[#151811]">待 AI 计算</div>
+                            <div className="mt-2 text-[11px] leading-5 text-[#8a5a1f]">{nutritionPendingMessage}</div>
+                          </>
+                        )}
                       </div>
                     ) : null}
                   </label>
@@ -847,11 +875,11 @@ export function HomeDashboard({
 
           <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
             <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Recovery Signals</div>
-            <h3 className="mt-1 text-lg font-semibold text-[#151811]">恢复指标</h3>
+            <h3 className="mt-1 text-lg font-semibold text-[#151811]">鎭㈠鎸囨爣</h3>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">体重 kg</span>
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">浣撻噸 kg</span>
                 <input
                   type="number"
                   step="0.1"
@@ -863,7 +891,7 @@ export function HomeDashboard({
                 />
               </label>
               <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">睡眠 h</span>
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">鐫＄湢 h</span>
                 <input
                   type="number"
                   step="0.5"
@@ -875,7 +903,7 @@ export function HomeDashboard({
                 />
               </label>
               <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">疲劳 1-10</span>
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">鐤插姵 1-10</span>
                 <input
                   type="number"
                   min="1"
@@ -890,23 +918,23 @@ export function HomeDashboard({
 
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">疼痛 / 不适</span>
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">Pain / discomfort</span>
                 <textarea
                   rows={3}
                   value={reportDraft.painNotes}
                   onChange={(event) => setReportDraft((current) => ({ ...current, painNotes: event.target.value }))}
                   className="mt-2 w-full resize-none bg-transparent text-sm leading-6 text-[#151811] outline-none"
-                  placeholder="例如：右肩前束有顶感，深蹲膝盖没问题。"
+                  placeholder="Example: mild right shoulder discomfort; squat depth felt fine."
                 />
               </label>
               <label className="block rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">恢复备注</span>
+                <span className="text-[11px] uppercase tracking-[0.2em] text-black/42">鎭㈠澶囨敞</span>
                 <textarea
                   rows={3}
                   value={reportDraft.recoveryNote}
                   onChange={(event) => setReportDraft((current) => ({ ...current, recoveryNote: event.target.value }))}
                   className="mt-2 w-full resize-none bg-transparent text-sm leading-6 text-[#151811] outline-none"
-                  placeholder="例如：下午很困、拉伸后状态好一点、今天步数偏高。"
+                  placeholder="Example: felt sleepy in the afternoon; mobility work helped."
                 />
               </label>
             </div>
@@ -916,20 +944,20 @@ export function HomeDashboard({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Summary Note</div>
-                <h3 className="mt-1 text-lg font-semibold text-[#151811]">总结备注</h3>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">鎬荤粨澶囨敞</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAdvanced((current) => !current)}
                 className="rounded-full border border-black/10 bg-[#f7f3e8] px-3 py-2 text-xs font-semibold text-[#151811]"
               >
-                {showAdvanced ? "收起提示" : "展开提示"}
+                {showAdvanced ? "鏀惰捣鎻愮ず" : "灞曞紑鎻愮ず"}
               </button>
             </div>
 
             {showAdvanced ? (
               <div className="mt-3 rounded-[18px] border border-black/10 bg-[#faf7ef] px-4 py-3 text-sm leading-6 text-black/58">
-                这里补充今天最重要的上下文，比如临时换动作、状态异常、时间错位、训练节奏和你认为明天需要记住的事。
+                杩欓噷琛ュ厖浠婂ぉ鏈€閲嶈鐨勪笂涓嬫枃锛屾瘮濡備复鏃舵崲鍔ㄤ綔銆佺姸鎬佸紓甯搞€佹椂闂撮敊浣嶃€佽缁冭妭濂忓拰浣犺涓烘槑澶╅渶瑕佽浣忕殑浜嬨€?
               </div>
             ) : null}
 
@@ -938,7 +966,7 @@ export function HomeDashboard({
               onChange={(event) => updateTrainingReport(event.target.value)}
               rows={5}
               className="mt-4 w-full rounded-[18px] border border-black/10 bg-[#faf7ef] px-4 py-3 text-sm leading-7 outline-none"
-              placeholder="自由补充今天最重要的上下文，例如：卧推最后两组明显变慢，午饭晚了 90 分钟，晚上恢复一般。"
+              placeholder="Add today's key notes, e.g. movement change, schedule shift, or recovery context."
             />
 
             <button
@@ -966,10 +994,10 @@ export function HomeDashboard({
               {submissionMode === "completed" ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#151811]/25 border-t-[#151811]" />
-                  <span>提交中...</span>
+                  <span>鎻愪氦涓?..</span>
                 </>
               ) : (
-                "提交今日汇报"
+                "鎻愪氦浠婃棩姹囨姤"
               )}
             </button>
           </div>
@@ -978,18 +1006,18 @@ export function HomeDashboard({
 
       <SectionCard
         eyebrow="Coach"
-        title="教练问答"
-        description="理论问题和今日点评都集中在这里。提交今日汇报后，回答区会自动刷新成当天点评。"
+        title="Coach Q&A"
+        description="Ask training or nutrition questions here. Daily review will also appear in this panel."
       >
         <div className="space-y-4">
           <div className="hidden rounded-[26px] bg-[#151811] p-5 text-white shadow-[0_24px_60px_rgba(18,22,16,0.22)]">
             <div className="text-[11px] uppercase tracking-[0.28em] text-white/42">Context</div>
             <div className="mt-3 rounded-[20px] border border-white/10 bg-white/6 px-4 py-4">
-              <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">当前计划摘要</div>
+              <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">褰撳墠璁″垝鎽樿</div>
               <p className="mt-2 text-sm leading-7 text-white/78">{coachReply.contextSummary ?? snapshot.plan.goal}</p>
             </div>
             <div className="mt-3 rounded-[20px] border border-white/10 bg-white/6 px-4 py-4">
-              <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">角色原则</div>
+              <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">瑙掕壊鍘熷垯</div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {snapshot.persona.corePrinciples.map((item) => (
                   <span key={item} className="rounded-full border border-white/10 bg-white/8 px-3 py-1.5 text-xs text-white/70">
@@ -1038,7 +1066,7 @@ export function HomeDashboard({
                 <div className="mt-4 flex flex-wrap gap-2">
                   {coachReply.basis.map((basis) => (
                     <span key={`${basis.type}-${basis.label}`} className="rounded-full bg-[#f1ebd9] px-3 py-1.5 text-xs text-black/58">
-                      {basis.type} · {basis.label}
+                      {basis.type} 路 {basis.label}
                     </span>
                   ))}
                 </div>
@@ -1052,11 +1080,11 @@ export function HomeDashboard({
                 onChange={(event) => setCoachInput(event.target.value)}
                 rows={4}
                 className="mt-3 w-full resize-none rounded-[20px] border border-black/10 bg-white px-4 py-3 text-sm leading-7 outline-none"
-                placeholder="例如：休息日碳水为什么要更低？今天肩膀有点顶，推举该怎么替换？"
+                placeholder="For example: why lower carbs on rest day, or how to replace a painful movement."
               />
               <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs leading-6 text-black/48">
-                  理论解释、恢复策略、动作替换走这里；练后点评也会在同一块统一显示。
+                  Ask theory, recovery, substitutions, and nutrition strategy here.
                 </p>
                 <button
                   type="button"
@@ -1064,7 +1092,7 @@ export function HomeDashboard({
                   disabled={isAsking}
                   className="inline-flex items-center justify-center rounded-full bg-[#d5ff63] px-5 py-3 text-sm font-semibold text-[#151811] transition hover:bg-[#c2f24a] disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {isAsking ? "思考中..." : "发送问题"}
+                  {isAsking ? "Thinking..." : "Send question"}
                 </button>
               </div>
             </div>
@@ -1074,3 +1102,5 @@ export function HomeDashboard({
     </div>
   );
 }
+
+

@@ -268,6 +268,18 @@ function renderStructuredReportBody(report: SessionReport) {
                 </div>
               ) : null}
             </div>
+          ) : report.nutritionComputation?.status === "pending" ? (
+            <div className="mt-3 rounded-[14px] border border-[#e5d6ae] bg-[#fff6df] px-3 py-3 text-sm text-[#5a4620]">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Nutrition Totals</div>
+              <div className="mt-2">营养待 AI 计算</div>
+              {report.nutritionWarnings?.length ? (
+                <div className="mt-2 space-y-1 text-[11px] leading-5">
+                  {report.nutritionWarnings.map((warning) => (
+                    <div key={`${report.id}-${warning}`}>{warning}</div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           <div className="mt-3 grid gap-2 sm:grid-cols-2">

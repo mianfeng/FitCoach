@@ -7,9 +7,8 @@ import {
   buildStrictDailyReviewMarkdown,
   buildTodayAutofillBrief,
 } from "@/lib/server/domain";
-import { summarizeReportNutrition } from "@/lib/nutrition";
-import { generateGeminiDailyReview, inferUnknownMealTokensWithGemini } from "@/lib/server/gemini";
-import { deriveDietAdherence, normalizeMealLog } from "@/lib/session-report";
+import { computeMealLogNutritionWithGemini, generateGeminiDailyReview } from "@/lib/server/gemini";
+import { createEmptyMealLog, deriveDietAdherence, normalizeMealLog } from "@/lib/session-report";
 import { getRepository } from "@/lib/server/repository";
 import { uid } from "@/lib/utils";
 import { sessionReportSchema } from "@/lib/validations";
@@ -19,7 +18,7 @@ export async function POST(request: Request) {
     const payload = await request.json();
     const parsed = sessionReportSchema.parse(payload);
     const repository = await getRepository();
-    const mealLog = normalizeMealLog(parsed.mealLog);
+    const mealLog = normalizeMealLog(parsed.mealLog) ?? createEmptyMealLog();
     const normalizedReport = {
       ...parsed,
       reportVersion: 2 as const,
@@ -50,25 +49,29 @@ export async function POST(request: Request) {
       carbsG: reviewBrief.mealPrescription.macros.carbsG,
       fatsG: reviewBrief.mealPrescription.macros.fatsG,
     };
-    const baseNutritionSummary = summarizeReportNutrition(mealLog, targetNutrition, {
-      customDishes: snapshot.nutritionDishes,
+    const nutritionSummary = await computeMealLogNutritionWithGemini({
+      mealLog,
+      targetNutrition,
+      nutritionDishes: snapshot.nutritionDishes,
     });
-    let nutritionSummary = baseNutritionSummary;
-    if (baseNutritionSummary.unknownTokens.length) {
-      const inferredEstimates = await inferUnknownMealTokensWithGemini(baseNutritionSummary.unknownTokens);
-      if (inferredEstimates.length) {
-        nutritionSummary = summarizeReportNutrition(mealLog, targetNutrition, {
-          customDishes: snapshot.nutritionDishes,
-          inferredTokenEstimates: inferredEstimates,
-        });
-      }
-    }
     const reportWithNutrition = {
       ...normalizedReport,
       mealLog: nutritionSummary.mealLog,
-      nutritionTotals: nutritionSummary.nutritionTotals,
-      nutritionGap: nutritionSummary.nutritionGap,
+      nutritionTotals: nutritionSummary.status === "ready" ? nutritionSummary.nutritionTotals : undefined,
+      nutritionGap: nutritionSummary.status === "ready" ? nutritionSummary.nutritionGap : undefined,
       nutritionWarnings: nutritionSummary.nutritionWarnings,
+      nutritionComputation:
+        nutritionSummary.status === "ready"
+          ? {
+              status: "ready" as const,
+              source: "gemini" as const,
+              computedAt: nutritionSummary.computedAt,
+            }
+          : {
+              status: "pending" as const,
+              source: "gemini" as const,
+              error: nutritionSummary.error,
+            },
     };
     if (!normalizedReport.completed) {
       const draftReport = {

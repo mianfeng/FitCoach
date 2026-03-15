@@ -266,6 +266,13 @@ export interface NextDayDecision {
   priorityNotes: string[];
 }
 
+export interface NutritionComputation {
+  status: "ready" | "pending";
+  source: "gemini";
+  computedAt?: string;
+  error?: string;
+}
+
 export interface SessionReport {
   id: string;
   reportVersion: 1 | 2;
@@ -287,6 +294,7 @@ export interface SessionReport {
   nutritionTotals?: NutritionEstimate;
   nutritionGap?: NutritionEstimate;
   nutritionWarnings?: string[];
+  nutritionComputation?: NutritionComputation;
   createdAt: string;
 }
 

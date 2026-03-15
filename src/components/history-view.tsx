@@ -10,7 +10,16 @@ import {
   normalizeMealLog,
   resolvePostWorkoutEntry,
 } from "@/lib/session-report";
-import type { DashboardSnapshot, MealLogEntry, SessionReport } from "@/lib/types";
+import type {
+  DashboardSnapshot,
+  ExerciseTemplate,
+  MealLogEntry,
+  PlanCalendarEntry,
+  SessionReport,
+  WeeklyPhase,
+  WorkoutTemplate,
+} from "@/lib/types";
+import { roundToIncrement } from "@/lib/utils";
 
 interface HistoryViewProps {
   snapshot: DashboardSnapshot;
@@ -19,6 +28,14 @@ interface HistoryViewProps {
 type WeightTrendPoint = {
   date: string;
   weightKg: number;
+};
+
+type WeeklyLinearOverviewRow = {
+  week: number;
+  schedule: string;
+  phaseText: string;
+  mainAItems: string[];
+  mainBItems: string[];
 };
 
 function toWeightLabel(value: number) {
@@ -46,6 +63,109 @@ function buildWeightTrend(reports: SessionReport[]) {
     });
   }
   return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function isDeloadPhase(phase: WeeklyPhase) {
+  return phase.label.includes("减载");
+}
+
+function getTemplateOrder(dayCode: WorkoutTemplate["dayCode"]) {
+  if (dayCode === "A") {
+    return 0;
+  }
+  if (dayCode === "B") {
+    return 1;
+  }
+  return 2;
+}
+
+function pickMainExercises(template: WorkoutTemplate) {
+  const primary = template.exercises.find((exercise) => exercise.category === "compound") ?? template.exercises[0];
+  const secondary =
+    template.exercises.find((exercise) => exercise.category === "compound" && exercise.id !== primary?.id) ??
+    template.exercises.find((exercise) => exercise.id !== primary?.id);
+  return { primary, secondary };
+}
+
+function estimateExerciseWeight(
+  exercise: ExerciseTemplate | undefined,
+  phase: WeeklyPhase,
+  nonDeloadStepsBefore: number,
+  defaultIncrementKg: number,
+) {
+  if (!exercise) {
+    return "--";
+  }
+  if (exercise.usesBodyweight) {
+    return "自重";
+  }
+
+  const increment = exercise.incrementKg > 0 ? exercise.incrementKg : defaultIncrementKg || 2.5;
+  const isDeload = isDeloadPhase(phase);
+  const percentage = exercise.percentageOf1RM ?? 1;
+
+  if (exercise.oneRepMaxKg && exercise.progressionModel === "percentage") {
+    const raw = exercise.oneRepMaxKg * phase.intensity * percentage;
+    const adjusted = isDeload ? raw * 0.9 : raw;
+    return `${roundToIncrement(adjusted, increment)}kg`;
+  }
+
+  const baseWeight =
+    exercise.baseWeightKg ??
+    (exercise.oneRepMaxKg ? roundToIncrement(exercise.oneRepMaxKg * 0.7 * percentage, increment) : undefined);
+
+  if (baseWeight == null) {
+    return "--";
+  }
+
+  const progressed = baseWeight + increment * nonDeloadStepsBefore;
+  const adjusted = isDeload ? progressed * 0.8 : progressed;
+  return `${roundToIncrement(adjusted, increment)}kg`;
+}
+
+function buildWeekSchedule(calendarEntries: PlanCalendarEntry[], week: number) {
+  const ordered = calendarEntries
+    .filter((entry) => entry.week === week)
+    .sort((left, right) => left.dayIndex - right.dayIndex)
+    .map((entry) => (entry.slot === "rest" ? "休" : entry.slot));
+
+  const unique: string[] = [];
+  for (const label of ordered) {
+    if (!unique.includes(label)) {
+      unique.push(label);
+    }
+  }
+  return unique.join(" / ");
+}
+
+function buildWeeklyLinearRows(snapshot: DashboardSnapshot): WeeklyLinearOverviewRow[] {
+  const templates = [...snapshot.templates].sort((left, right) => getTemplateOrder(left.dayCode) - getTemplateOrder(right.dayCode));
+  const phases = [...snapshot.plan.progressionRule.weeklyPhases].sort((left, right) => left.week - right.week);
+
+  return phases.map((phase) => {
+    const nonDeloadStepsBefore = phases.filter((item) => item.week < phase.week && !isDeloadPhase(item)).length;
+    const phaseText = `${phase.label} / ${(phase.intensity * 100).toFixed(1)}% / ${phase.repStyle}`;
+
+    const mainAItems = templates.map((template) => {
+      const { primary } = pickMainExercises(template);
+      const fallbackIncrement = primary ? (snapshot.plan.progressionRule.defaultIncrementsKg[primary.category] ?? 2.5) : 2.5;
+      return `${template.dayCode} ${primary?.name ?? "—"}: ${estimateExerciseWeight(primary, phase, nonDeloadStepsBefore, fallbackIncrement)}`;
+    });
+
+    const mainBItems = templates.map((template) => {
+      const { secondary } = pickMainExercises(template);
+      const fallbackIncrement = secondary ? (snapshot.plan.progressionRule.defaultIncrementsKg[secondary.category] ?? 2.5) : 2.5;
+      return `${template.dayCode} ${secondary?.name ?? "—"}: ${estimateExerciseWeight(secondary, phase, nonDeloadStepsBefore, fallbackIncrement)}`;
+    });
+
+    return {
+      week: phase.week,
+      schedule: buildWeekSchedule(snapshot.plan.calendarEntries, phase.week),
+      phaseText,
+      mainAItems,
+      mainBItems,
+    };
+  });
 }
 
 function summarizeMealLog(report: SessionReport) {
@@ -274,6 +394,7 @@ function renderReportBody(report: SessionReport) {
 }
 
 export function HistoryView({ snapshot }: HistoryViewProps) {
+  const weeklyLinearRows = useMemo(() => buildWeeklyLinearRows(snapshot), [snapshot]);
   const weightTrend = useMemo(() => buildWeightTrend(snapshot.recentReports), [snapshot.recentReports]);
   const weightChart = useMemo(() => {
     if (!weightTrend.length) {
@@ -366,6 +487,57 @@ export function HistoryView({ snapshot }: HistoryViewProps) {
       </SectionCard>
 
       <div className="space-y-5">
+        <SectionCard
+          eyebrow="Program"
+          title="线性计划总览（按周）"
+          description="按周查看当前正式计划，不展开到每天；每行给出周结构、主项重量和阶段强度。"
+        >
+          {weeklyLinearRows.length ? (
+            <div className="overflow-x-auto rounded-[22px] border border-black/12 bg-[#10130f]">
+              <table className="min-w-[920px] w-full border-collapse text-sm text-white/84">
+                <thead>
+                  <tr className="border-b border-white/10 text-left text-[11px] uppercase tracking-[0.2em] text-white/44">
+                    <th className="px-4 py-3">Week</th>
+                    <th className="px-4 py-3">训练安排</th>
+                    <th className="px-4 py-3">主项 A (kg)</th>
+                    <th className="px-4 py-3">主项 B (kg)</th>
+                    <th className="px-4 py-3">阶段</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weeklyLinearRows.map((row) => (
+                    <tr key={row.week} className="border-b border-white/8 align-top last:border-b-0">
+                      <td className="px-4 py-3 text-base font-semibold text-white">W{row.week}</td>
+                      <td className="px-4 py-3 text-white/76">{row.schedule}</td>
+                      <td className="px-4 py-3">
+                        <div className="space-y-1.5">
+                          {row.mainAItems.map((item) => (
+                            <div key={`a-${row.week}-${item}`} className="text-[13px] leading-5 text-white/80">
+                              {item}
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="space-y-1.5">
+                          {row.mainBItems.map((item) => (
+                            <div key={`b-${row.week}-${item}`} className="text-[13px] leading-5 text-white/80">
+                              {item}
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-white/78">{row.phaseText}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-black/55">暂无可展示的周计划数据。</p>
+          )}
+        </SectionCard>
+
         <SectionCard eyebrow="Weight" title="体重记录折线图" description="按日期展示最近汇报中的体重变化趋势。">
           {!weightTrend.length ? (
             <p className="text-sm text-black/55">还没有可用体重记录。</p>

@@ -968,7 +968,7 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
     comboCookingMethods,
     oilApplicable,
   });
-  const rinseOil = options.rinseOil === true || (options.rinseOil !== true && detectRinseOilFromText(text));
+  const rinseOil = options.rinseOil ?? detectRinseOilFromText(text);
 
   if (cookingMethodResolution.method) {
     if (cookingMethodResolution.source === "text") {

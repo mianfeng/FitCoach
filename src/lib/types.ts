@@ -9,6 +9,13 @@ export type PlanCalendarSlot = DayCode | "rest";
 export type PostWorkoutSource = "dedicated" | "lunch" | "dinner";
 export type MealAdherenceStatus = "on_plan" | "adjusted" | "missed";
 export type TrainingReadiness = "push" | "hold" | "deload";
+export type MealCookingMethod =
+  | "poached_steamed"
+  | "stir_fry_light"
+  | "stir_fry_normal"
+  | "stir_fry_heavy"
+  | "grill_pan_sear"
+  | "deep_fry";
 
 export interface CoachPersona {
   id: string;
@@ -241,7 +248,7 @@ export interface ParsedMealItem {
   unit: string;
   grams?: number;
   milliliters?: number;
-  quantitySource: "explicit" | "default" | "ai";
+  quantitySource: "explicit" | "default" | "ai" | "rule";
   category: string;
   calories: number;
   proteinG: number;
@@ -254,6 +261,8 @@ export interface MealLogEntry {
   content: string;
   adherence: MealAdherenceStatus;
   deviationNote?: string;
+  cookingMethod?: MealCookingMethod;
+  rinseOil?: boolean;
   parsedItems?: ParsedMealItem[];
   nutritionEstimate?: NutritionEstimate;
   analysisWarnings?: string[];
@@ -268,7 +277,7 @@ export interface NextDayDecision {
 
 export interface NutritionComputation {
   status: "ready" | "pending";
-  source: "gemini";
+  source: "gemini" | "hybrid";
   computedAt?: string;
   error?: string;
 }

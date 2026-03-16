@@ -1,5 +1,6 @@
 import { clamp } from "@/lib/utils";
 import type {
+  MealCookingMethod,
   MealAdherenceStatus,
   MealLog,
   MealLogEntry,
@@ -37,11 +38,22 @@ export const mealAdherenceLabels: Record<MealAdherenceStatus, string> = {
   missed: "缺失",
 };
 
+export const mealCookingMethodLabels: Record<MealCookingMethod, string> = {
+  poached_steamed: "水煮/清蒸",
+  stir_fry_light: "少油炒",
+  stir_fry_normal: "正常炒",
+  stir_fry_heavy: "重油炒",
+  grill_pan_sear: "烤/煎",
+  deep_fry: "炸",
+};
+
 export function createEmptyMealEntry(): MealLogEntry {
   return {
     content: "",
     adherence: "on_plan",
     deviationNote: "",
+    cookingMethod: undefined,
+    rinseOil: false,
   };
 }
 
@@ -75,6 +87,8 @@ function toStructuredEntry(value: string | undefined) {
     content,
     adherence: content ? "adjusted" : "missed",
     deviationNote: "",
+    cookingMethod: undefined,
+    rinseOil: false,
     parsedItems: [],
     nutritionEstimate: {
       calories: 0,
@@ -92,6 +106,8 @@ function normalizeMealEntry(value: MealLogEntry | string | undefined) {
       content: value.content ?? "",
       adherence: value.adherence,
       deviationNote: value.deviationNote ?? "",
+      cookingMethod: value.cookingMethod,
+      rinseOil: value.rinseOil ?? false,
       parsedItems: value.parsedItems ?? [],
       nutritionEstimate: value.nutritionEstimate,
       analysisWarnings: value.analysisWarnings ?? [],

@@ -4,8 +4,22 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { SectionCard } from "@/components/section-card";
-import { buildMealLogForSubmit, countFilledMealSlots, createEmptyMealLog, mealSlotLabels } from "@/lib/session-report";
-import type { ChatMessage, DashboardSnapshot, DailyBrief, ExerciseResult, MealLog, SessionReport } from "@/lib/types";
+import {
+  buildMealLogForSubmit,
+  countFilledMealSlots,
+  createEmptyMealLog,
+  mealCookingMethodLabels,
+  mealSlotLabels,
+} from "@/lib/session-report";
+import type {
+  ChatMessage,
+  DashboardSnapshot,
+  DailyBrief,
+  ExerciseResult,
+  MealCookingMethod,
+  MealLog,
+  SessionReport,
+} from "@/lib/types";
 
 type ReportDraft = {
   reportVersion: 2;
@@ -67,6 +81,15 @@ const MEAL_SLOTS: Array<{ key: keyof Omit<MealLog, "postWorkoutSource">; label: 
   { key: "dinner", label: "晚餐" },
   { key: "preWorkout", label: "练前餐" },
   { key: "postWorkout", label: "练后餐" },
+];
+
+const COOKING_METHOD_OPTIONS: Array<{ value: MealCookingMethod; label: string }> = [
+  { value: "poached_steamed", label: mealCookingMethodLabels.poached_steamed },
+  { value: "stir_fry_light", label: mealCookingMethodLabels.stir_fry_light },
+  { value: "stir_fry_normal", label: mealCookingMethodLabels.stir_fry_normal },
+  { value: "stir_fry_heavy", label: mealCookingMethodLabels.stir_fry_heavy },
+  { value: "grill_pan_sear", label: mealCookingMethodLabels.grill_pan_sear },
+  { value: "deep_fry", label: mealCookingMethodLabels.deep_fry },
 ];
 
 function formatNutritionSummary(calories: number, proteinG: number, carbsG: number, fatsG: number) {
@@ -324,6 +347,10 @@ export function HomeDashboard({
     patch: Partial<MealLog[keyof Omit<MealLog, "postWorkoutSource">]>,
   ) {
     setMealLogDirty(true);
+    const invalidatesNutrition =
+      Object.prototype.hasOwnProperty.call(patch, "content") ||
+      Object.prototype.hasOwnProperty.call(patch, "cookingMethod") ||
+      Object.prototype.hasOwnProperty.call(patch, "rinseOil");
     setReportDraft((current) => ({
       ...current,
       mealLog: {
@@ -331,8 +358,7 @@ export function HomeDashboard({
         [field]: {
           ...current.mealLog[field],
           ...patch,
-          // The AI result is stale once content is edited.
-          ...(Object.prototype.hasOwnProperty.call(patch, "content")
+          ...(invalidatesNutrition
             ? { parsedItems: [], nutritionEstimate: undefined, analysisWarnings: [] }
             : {}),
         },
@@ -854,9 +880,58 @@ export function HomeDashboard({
                       placeholder={`输入${field.label}，例如：鸡排饭 100g鸡排 250g米饭 1勺蛋白粉30g`}
                     />
 
+                    <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                      <label className="block rounded-[14px] border border-black/10 bg-white px-3 py-3">
+                        <span className="text-[10px] uppercase tracking-[0.2em] text-black/42">Cooking Method</span>
+                        <select
+                          value={currentEntry.cookingMethod ?? ""}
+                          onChange={(event) =>
+                            updateMeal(field.key, {
+                              cookingMethod: (event.target.value || undefined) as MealCookingMethod | undefined,
+                            })
+                          }
+                          disabled={isMirroredPostWorkout}
+                          className="mt-2 w-full bg-transparent text-sm font-medium text-[#151811] outline-none disabled:opacity-50"
+                        >
+                          <option value="">自动推断</option>
+                          {COOKING_METHOD_OPTIONS.map((option) => (
+                            <option key={`${field.key}-${option.value}`} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="flex items-center gap-3 rounded-[14px] border border-black/10 bg-white px-3 py-3 text-sm text-[#151811]">
+                        <input
+                          type="checkbox"
+                          checked={currentEntry.rinseOil ?? false}
+                          onChange={(event) => updateMeal(field.key, { rinseOil: event.target.checked })}
+                          disabled={isMirroredPostWorkout}
+                          className="h-4 w-4 accent-[#151811] disabled:opacity-50"
+                        />
+                        <div>
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Rinse Oil</div>
+                          <div className="mt-1 text-sm font-medium text-[#151811]">涮油 / 过水去油</div>
+                        </div>
+                      </label>
+                    </div>
+
                     {currentEntry.content.trim() ? (
                       <div className="mt-3 rounded-[16px] border border-black/10 bg-white px-3 py-3">
                         <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Parsed Nutrition</div>
+                        {currentEntry.cookingMethod || currentEntry.rinseOil ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {currentEntry.cookingMethod ? (
+                              <span className="rounded-full bg-[#eef3e2] px-2 py-1 text-[10px] text-[#44512a]">
+                                {mealCookingMethodLabels[currentEntry.cookingMethod]}
+                              </span>
+                            ) : null}
+                            {currentEntry.rinseOil ? (
+                              <span className="rounded-full bg-[#fff1c7] px-2 py-1 text-[10px] text-[#6d5620]">涮油</span>
+                            ) : null}
+                          </div>
+                        ) : null}
                         {hasReadyNutrition && currentEntry.nutritionEstimate ? (
                           <>
                             <div className="mt-2 text-sm font-medium text-[#151811]">

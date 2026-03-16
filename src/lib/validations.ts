@@ -5,6 +5,22 @@ const performedDaySchema = z.union([dayCodeSchema, z.literal("rest")]);
 const schedulePatternSchema = z.literal("3on1off");
 const postWorkoutSourceSchema = z.enum(["dedicated", "lunch", "dinner"]);
 const mealAdherenceSchema = z.enum(["on_plan", "adjusted", "missed"]);
+const mealCookingMethodSchema = z.enum([
+  "poached_steamed",
+  "stir_fry_light",
+  "stir_fry_normal",
+  "stir_fry_heavy",
+  "grill_pan_sear",
+  "deep_fry",
+]);
+
+const mealEntrySchema = z.object({
+  content: z.string(),
+  adherence: mealAdherenceSchema,
+  deviationNote: z.string().optional(),
+  cookingMethod: mealCookingMethodSchema.optional(),
+  rinseOil: z.boolean().optional(),
+});
 
 export const dailyBriefRequestSchema = z.object({
   date: z.string().min(1),
@@ -161,31 +177,11 @@ export const exerciseResultSchema = z.object({
 });
 
 export const mealLogSchema = z.object({
-  breakfast: z.object({
-    content: z.string(),
-    adherence: mealAdherenceSchema,
-    deviationNote: z.string().optional(),
-  }),
-  lunch: z.object({
-    content: z.string(),
-    adherence: mealAdherenceSchema,
-    deviationNote: z.string().optional(),
-  }),
-  dinner: z.object({
-    content: z.string(),
-    adherence: mealAdherenceSchema,
-    deviationNote: z.string().optional(),
-  }),
-  preWorkout: z.object({
-    content: z.string(),
-    adherence: mealAdherenceSchema,
-    deviationNote: z.string().optional(),
-  }),
-  postWorkout: z.object({
-    content: z.string(),
-    adherence: mealAdherenceSchema,
-    deviationNote: z.string().optional(),
-  }),
+  breakfast: mealEntrySchema,
+  lunch: mealEntrySchema,
+  dinner: mealEntrySchema,
+  preWorkout: mealEntrySchema,
+  postWorkout: mealEntrySchema,
   postWorkoutSource: postWorkoutSourceSchema,
 });
 

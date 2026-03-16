@@ -6,6 +6,7 @@ import { SectionCard } from "@/components/section-card";
 import {
   isStructuredSessionReport,
   mealAdherenceLabels,
+  mealCookingMethodLabels,
   mealSlotLabels,
   normalizeMealLog,
   resolvePostWorkoutEntry,
@@ -295,6 +296,18 @@ function renderStructuredReportBody(report: SessionReport) {
                   </div>
 
                   <div className="mt-2 text-sm leading-6 text-black/62">{entry.content || "未填写"}</div>
+                  {entry.cookingMethod || entry.rinseOil ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {entry.cookingMethod ? (
+                        <span className="rounded-full bg-[#eef3e2] px-2 py-1 text-[10px] text-[#44512a]">
+                          {mealCookingMethodLabels[entry.cookingMethod]}
+                        </span>
+                      ) : null}
+                      {entry.rinseOil ? (
+                        <span className="rounded-full bg-[#fff1c7] px-2 py-1 text-[10px] text-[#6d5620]">涮油</span>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {entry.nutritionEstimate ? (
                     <div className="mt-2 text-xs font-medium text-[#151811]">{formatMealEstimate(entry)}</div>
                   ) : null}

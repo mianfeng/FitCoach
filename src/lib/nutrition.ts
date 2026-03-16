@@ -1,4 +1,11 @@
-import type { MealLog, MealLogEntry, NutritionDish, NutritionEstimate, ParsedMealItem } from "@/lib/types";
+import type {
+  MealCookingMethod,
+  MealLog,
+  MealLogEntry,
+  NutritionDish,
+  NutritionEstimate,
+  ParsedMealItem,
+} from "@/lib/types";
 
 type FoodPortionUnit = "g" | "ml" | "slice" | "piece" | "cup" | "bowl" | "serving";
 type NutritionBasis = "per100g" | "per100ml" | "perUnit";
@@ -13,6 +20,7 @@ type FoodLibraryItem = {
   proteinG: number;
   carbsG: number;
   fatsG: number;
+  supportsCookingOilRule?: boolean;
   defaultServing: {
     amount: number;
     unit: FoodPortionUnit;
@@ -25,6 +33,7 @@ type ComboDefinition = {
   id: string;
   name: string;
   aliases: string[];
+  defaultCookingMethod?: MealCookingMethod;
   components: Array<{
     foodId: string;
     amount: number;
@@ -38,6 +47,25 @@ type QuantityInfo = {
   grams?: number;
   milliliters?: number;
   explicit: boolean;
+};
+
+type MealParseOptions = {
+  customDishes?: NutritionDish[];
+  inferredTokenEstimates?: InferredTokenEstimate[];
+  cookingMethod?: MealCookingMethod;
+  rinseOil?: boolean;
+};
+
+type CookingMethodResolutionSource = "user" | "text" | "combo" | "default" | "none";
+
+type CookingMethodResolution = {
+  method?: MealCookingMethod;
+  source: CookingMethodResolutionSource;
+};
+
+type CookingOilRule = {
+  baseOilG: number;
+  label: string;
 };
 
 export type MealParseResult = {
@@ -59,11 +87,6 @@ export type InferredTokenEstimate = {
   token: string;
   name?: string;
   nutrition: NutritionEstimate;
-};
-
-type MealParseOptions = {
-  customDishes?: NutritionDish[];
-  inferredTokenEstimates?: InferredTokenEstimate[];
 };
 
 const chineseNumberMap: Record<string, number> = {
@@ -96,6 +119,51 @@ const unitMap: Record<string, FoodPortionUnit> = {
   碗: "bowl",
   份: "serving",
 };
+
+const cookingOilRules: Record<MealCookingMethod, CookingOilRule> = {
+  poached_steamed: { baseOilG: 0, label: "水煮/清蒸" },
+  stir_fry_light: { baseOilG: 4, label: "少油炒" },
+  stir_fry_normal: { baseOilG: 8, label: "正常炒" },
+  stir_fry_heavy: { baseOilG: 12, label: "重油炒" },
+  grill_pan_sear: { baseOilG: 5, label: "烤/煎" },
+  deep_fry: { baseOilG: 18, label: "炸" },
+};
+
+const cookingKeywordRules: Array<{ method: MealCookingMethod; patterns: string[] }> = [
+  { method: "stir_fry_light", patterns: ["少油"] },
+  { method: "deep_fry", patterns: ["油炸", "脆皮", "炸"] },
+  { method: "stir_fry_heavy", patterns: ["重油", "干锅", "香锅", "回锅", "油泼", "红烧"] },
+  { method: "poached_steamed", patterns: ["清蒸", "水煮", "白灼", "汆", "蒸"] },
+  { method: "grill_pan_sear", patterns: ["烤", "煎"] },
+  { method: "stir_fry_normal", patterns: ["小炒", "炝", "爆", "炒"] },
+];
+
+const cookingControlTokens = new Set([
+  "少油",
+  "少油炒",
+  "正常炒",
+  "普通炒",
+  "重油",
+  "重油炒",
+  "干锅",
+  "香锅",
+  "回锅",
+  "油泼",
+  "红烧",
+  "清蒸",
+  "蒸",
+  "水煮",
+  "白灼",
+  "汆",
+  "烤",
+  "煎",
+  "炸",
+  "油炸",
+  "脆皮",
+  "涮油",
+]);
+
+const rinseOilKeywords = ["涮油", "过水去油", "冲油"];
 
 const foodLibrary: FoodLibraryItem[] = [
   {
@@ -192,6 +260,7 @@ const foodLibrary: FoodLibraryItem[] = [
     proteinG: 31,
     carbsG: 0,
     fatsG: 3.6,
+    supportsCookingOilRule: true,
     defaultServing: { amount: 120, unit: "g", grams: 120 },
   },
   {
@@ -216,6 +285,7 @@ const foodLibrary: FoodLibraryItem[] = [
     proteinG: 24,
     carbsG: 0,
     fatsG: 8,
+    supportsCookingOilRule: true,
     defaultServing: { amount: 1, unit: "piece", grams: 150 },
   },
   {
@@ -228,6 +298,7 @@ const foodLibrary: FoodLibraryItem[] = [
     proteinG: 27,
     carbsG: 0,
     fatsG: 10,
+    supportsCookingOilRule: true,
     defaultServing: { amount: 100, unit: "g", grams: 100 },
   },
   {
@@ -240,6 +311,7 @@ const foodLibrary: FoodLibraryItem[] = [
     proteinG: 22,
     carbsG: 0,
     fatsG: 15,
+    supportsCookingOilRule: true,
     defaultServing: { amount: 120, unit: "g", grams: 120 },
   },
   {
@@ -252,6 +324,7 @@ const foodLibrary: FoodLibraryItem[] = [
     proteinG: 22,
     carbsG: 0,
     fatsG: 4,
+    supportsCookingOilRule: true,
     defaultServing: { amount: 150, unit: "g", grams: 150 },
   },
   {
@@ -264,6 +337,7 @@ const foodLibrary: FoodLibraryItem[] = [
     proteinG: 1.5,
     carbsG: 6,
     fatsG: 0.3,
+    supportsCookingOilRule: true,
     defaultServing: { amount: 80, unit: "g", grams: 80 },
   },
   {
@@ -369,10 +443,10 @@ const comboLibrary: ComboDefinition[] = [
     id: "grilled_fish_rice",
     name: "烤鱼饭",
     aliases: ["烤鱼饭"],
+    defaultCookingMethod: "grill_pan_sear",
     components: [
       { foodId: "fish", amount: 150, unit: "g" },
       { foodId: "rice", amount: 250, unit: "g" },
-      { foodId: "cooking_oil", amount: 8, unit: "g" },
     ],
   },
   {
@@ -388,6 +462,7 @@ const comboLibrary: ComboDefinition[] = [
     id: "beef_rice",
     name: "牛肉饭",
     aliases: ["牛肉饭"],
+    defaultCookingMethod: "stir_fry_normal",
     components: [
       { foodId: "beef", amount: 120, unit: "g" },
       { foodId: "rice", amount: 250, unit: "g" },
@@ -397,56 +472,23 @@ const comboLibrary: ComboDefinition[] = [
     id: "spicy_pork",
     name: "辣椒炒肉",
     aliases: ["辣椒炒肉", "青椒炒肉", "小炒肉"],
+    defaultCookingMethod: "stir_fry_normal",
     components: [
       { foodId: "pork", amount: 120, unit: "g" },
       { foodId: "chili_pepper", amount: 80, unit: "g" },
-      { foodId: "cooking_oil", amount: 10, unit: "g" },
     ],
   },
   {
     id: "chicken_leg_rice",
     name: "鸡腿饭",
     aliases: ["鸡腿饭", "鸡腿盖饭"],
+    defaultCookingMethod: "stir_fry_normal",
     components: [
       { foodId: "chicken_leg_skinless", amount: 150, unit: "g" },
       { foodId: "rice", amount: 250, unit: "g" },
-      { foodId: "cooking_oil", amount: 6, unit: "g" },
     ],
   },
 ];
-
-function toCustomFoodLibrary(customDishes?: NutritionDish[]) {
-  const dishes: FoodLibraryItem[] = [];
-  for (const dish of customDishes ?? []) {
-    const normalizedName = dish.name.trim();
-    if (!normalizedName) {
-      continue;
-    }
-    dishes.push({
-      id: `custom-${dish.id}`,
-      name: normalizedName,
-      aliases: dish.aliases.map((alias) => alias.trim()).filter(Boolean),
-      category: "custom",
-      basis: "perUnit",
-      calories: roundNutrition(dish.macros.proteinG * 4 + dish.macros.carbsG * 4 + dish.macros.fatsG * 9),
-      proteinG: roundNutrition(dish.macros.proteinG),
-      carbsG: roundNutrition(dish.macros.carbsG),
-      fatsG: roundNutrition(dish.macros.fatsG),
-      defaultServing: { amount: 1, unit: "serving" },
-    });
-  }
-  return dishes;
-}
-
-function buildFoodAliasIndex(customDishes?: NutritionDish[]) {
-  return [...foodLibrary, ...toCustomFoodLibrary(customDishes)]
-    .flatMap((item) => [item.name, ...item.aliases].map((alias) => ({ alias: alias.replace(/\s+/g, "").toLowerCase(), item })))
-    .sort((left, right) => right.alias.length - left.alias.length);
-}
-
-const comboAliasIndex = [...comboLibrary]
-  .flatMap((combo) => [combo.name, ...combo.aliases].map((alias) => ({ alias: alias.replace(/\s+/g, "").toLowerCase(), combo })))
-  .sort((left, right) => right.alias.length - left.alias.length);
 
 function roundNutrition(value: number) {
   return Math.round(value * 10) / 10;
@@ -485,10 +527,60 @@ function splitMealTokens(text: string) {
     .filter(Boolean);
 }
 
-function findFoodMatch(
-  token: string,
-  foodAliasIndex: Array<{ alias: string; item: FoodLibraryItem }>,
-) {
+function detectCookingMethodFromText(text: string): MealCookingMethod | undefined {
+  const normalized = normalizeLookupToken(text);
+  for (const rule of cookingKeywordRules) {
+    if (rule.patterns.some((pattern) => normalized.includes(normalizeLookupToken(pattern)))) {
+      return rule.method;
+    }
+  }
+  return undefined;
+}
+
+function detectRinseOilFromText(text: string) {
+  const normalized = normalizeLookupToken(text);
+  return rinseOilKeywords.some((keyword) => normalized.includes(normalizeLookupToken(keyword)));
+}
+
+function isCookingControlToken(token: string) {
+  return cookingControlTokens.has(normalizeLookupToken(token));
+}
+
+function toCustomFoodLibrary(customDishes?: NutritionDish[]) {
+  const dishes: FoodLibraryItem[] = [];
+  for (const dish of customDishes ?? []) {
+    const normalizedName = dish.name.trim();
+    if (!normalizedName) {
+      continue;
+    }
+    dishes.push({
+      id: `custom-${dish.id}`,
+      name: normalizedName,
+      aliases: dish.aliases.map((alias) => alias.trim()).filter(Boolean),
+      category: "custom",
+      basis: "perUnit",
+      calories: roundNutrition(dish.macros.proteinG * 4 + dish.macros.carbsG * 4 + dish.macros.fatsG * 9),
+      proteinG: roundNutrition(dish.macros.proteinG),
+      carbsG: roundNutrition(dish.macros.carbsG),
+      fatsG: roundNutrition(dish.macros.fatsG),
+      supportsCookingOilRule: false,
+      defaultServing: { amount: 1, unit: "serving" },
+    });
+  }
+  return dishes;
+}
+
+function buildFoodAliasIndex(items: FoodLibraryItem[]) {
+  return items
+    .flatMap((item) => [item.name, ...item.aliases].map((alias) => ({ alias: normalizeLookupToken(alias), item })))
+    .sort((left, right) => right.alias.length - left.alias.length);
+}
+
+const comboAliasIndex = comboLibrary
+  .flatMap((combo) => [combo.name, ...combo.aliases].map((alias) => ({ alias: normalizeLookupToken(alias), combo })))
+  .sort((left, right) => right.alias.length - left.alias.length);
+
+function findFoodMatch(token: string, foodAliasIndex: Array<{ alias: string; item: FoodLibraryItem }>) {
   const normalized = normalizeLookupToken(token);
   return (
     foodAliasIndex.find((entry) => {
@@ -503,6 +595,29 @@ function findFoodMatch(
 function findComboMatch(token: string) {
   const normalized = normalizeLookupToken(token);
   return comboAliasIndex.find((entry) => normalized.includes(entry.alias))?.combo ?? null;
+}
+
+function findContextualFoodMatch(token: string, combos: Array<{ combo: ComboDefinition }>) {
+  if (!token.includes("肉")) {
+    return null;
+  }
+
+  const proteinFoodIds = [
+    ...new Set(
+      combos.flatMap(({ combo }) =>
+        combo.components
+          .map((component) => foodLibrary.find((item) => item.id === component.foodId))
+          .filter((item): item is FoodLibraryItem => Boolean(item?.supportsCookingOilRule && item.category === "protein"))
+          .map((item) => item.id),
+      ),
+    ),
+  ];
+
+  if (proteinFoodIds.length !== 1) {
+    return null;
+  }
+
+  return foodLibrary.find((item) => item.id === proteinFoodIds[0]) ?? null;
 }
 
 function buildInferredTokenMap(estimates?: InferredTokenEstimate[]) {
@@ -566,7 +681,7 @@ function parseQuantity(token: string, item: FoodLibraryItem): QuantityInfo {
     const rawAmount = Number(preferredMatch[1]);
     const rawUnit = preferredMatch[2].toLowerCase();
     const mappedUnit = unitMap[rawUnit];
-    const normalizedAmount = rawUnit === "kg" ? rawAmount * 1000 : rawUnit === "l" ? rawAmount * 1000 : rawAmount;
+    const normalizedAmount = rawUnit === "kg" || rawUnit === "l" ? rawAmount * 1000 : rawAmount;
     const converted = convertQuantityToMeasure(normalizedAmount, mappedUnit, item);
 
     return {
@@ -624,9 +739,8 @@ function calculateNutrition(item: FoodLibraryItem, quantity: QuantityInfo): Nutr
     } else if (quantity.milliliters && item.defaultServing.milliliters) {
       factor = quantity.milliliters / item.defaultServing.milliliters;
     }
+
     if (factor === 0 && quantity.explicit) {
-      // Per-serving foods written as grams/ml cannot be converted without serving-weight metadata.
-      // Fallback to one serving to avoid dropping to zero.
       factor = 1;
     }
   }
@@ -639,12 +753,7 @@ function calculateNutrition(item: FoodLibraryItem, quantity: QuantityInfo): Nutr
   };
 }
 
-function createParsedItem(
-  item: FoodLibraryItem,
-  sourceText: string,
-  quantity: QuantityInfo,
-  note?: string,
-): ParsedMealItem {
+function createParsedItem(item: FoodLibraryItem, sourceText: string, quantity: QuantityInfo, note?: string): ParsedMealItem {
   const nutrition = calculateNutrition(item, quantity);
   return {
     name: item.name,
@@ -663,8 +772,69 @@ function createParsedItem(
   };
 }
 
+function createRuleOilParsedItem(sourceText: string, cookingMethod: MealCookingMethod, retainedOilG: number, rinseOil: boolean): ParsedMealItem {
+  return {
+    name: "烹调保留油",
+    sourceText,
+    amount: retainedOilG,
+    unit: "g",
+    grams: retainedOilG,
+    quantitySource: "rule",
+    category: "fat",
+    calories: roundNutrition((884 * retainedOilG) / 100),
+    proteinG: 0,
+    carbsG: 0,
+    fatsG: roundNutrition(retainedOilG),
+    note: rinseOil ? `${cookingOilRules[cookingMethod].label}，按涮油折算` : cookingOilRules[cookingMethod].label,
+  };
+}
+
 function uniqueWarnings(warnings: string[]) {
   return [...new Set(warnings.filter(Boolean))];
+}
+
+function isOilApplicable(hasParsedItems: boolean, hasComboMatch: boolean, oilEligibleCategories: Set<string>) {
+  if (!hasParsedItems || oilEligibleCategories.size === 0) {
+    return false;
+  }
+
+  return hasComboMatch || (oilEligibleCategories.has("protein") && oilEligibleCategories.has("vegetable"));
+}
+
+function resolveCookingMethod(params: {
+  text: string;
+  cookingMethod?: MealCookingMethod;
+  comboCookingMethods: MealCookingMethod[];
+  oilApplicable: boolean;
+}): CookingMethodResolution {
+  if (!params.oilApplicable) {
+    return { source: "none" };
+  }
+  if (params.cookingMethod) {
+    return { method: params.cookingMethod, source: "user" };
+  }
+
+  const textMethod = detectCookingMethodFromText(params.text);
+  if (textMethod) {
+    return { method: textMethod, source: "text" };
+  }
+
+  const comboMethod = params.comboCookingMethods[0];
+  if (comboMethod) {
+    return { method: comboMethod, source: "combo" };
+  }
+
+  return { method: "stir_fry_normal", source: "default" };
+}
+
+function resolveRetainedOil(cookingMethod: MealCookingMethod, rinseOil: boolean) {
+  const baseOilG = cookingOilRules[cookingMethod].baseOilG;
+  if (!rinseOil || baseOilG === 0) {
+    return baseOilG;
+  }
+
+  const discounted = baseOilG * 0.5;
+  return roundNutrition(baseOilG >= 4 ? Math.max(2, discounted) : discounted);
 }
 
 export function parseMealText(text: string, options: MealParseOptions = {}): MealParseResult {
@@ -678,15 +848,37 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
     };
   }
 
-  const foodAliasIndex = buildFoodAliasIndex(options.customDishes);
+  const customFoodAliasIndex = buildFoodAliasIndex(toCustomFoodLibrary(options.customDishes));
+  const regularFoodAliasIndex = buildFoodAliasIndex(foodLibrary);
   const inferredTokenMap = buildInferredTokenMap(options.inferredTokenEstimates);
   const parsedItems: ParsedMealItem[] = [];
   const warnings: string[] = [];
   const unknownTokens: string[] = [];
   const combos: Array<{ combo: ComboDefinition; token: string; count: number }> = [];
   const explicitFoodNames = new Set<string>();
+  const comboCookingMethods: MealCookingMethod[] = [];
+  const oilEligibleCategories = new Set<string>();
 
   for (const token of tokens) {
+    if (isCookingControlToken(token)) {
+      continue;
+    }
+
+    const customFood = findFoodMatch(token, customFoodAliasIndex);
+    if (customFood) {
+      const quantity = parseQuantity(token, customFood);
+      parsedItems.push(
+        createParsedItem(
+          customFood,
+          token,
+          quantity,
+          quantity.explicit ? undefined : `按默认份量估算 ${customFood.defaultServing.amount}${customFood.defaultServing.unit}`,
+        ),
+      );
+      explicitFoodNames.add(customFood.name);
+      continue;
+    }
+
     const combo = findComboMatch(token);
     if (combo) {
       const comboCountMatch = token.match(/(\d+(?:\.\d+)?)\s*份/);
@@ -697,11 +889,14 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
           ? (extractChineseNumber(comboChineseCount[1]) ?? 1)
           : 1;
       combos.push({ combo, token, count });
+      if (combo.defaultCookingMethod) {
+        comboCookingMethods.push(combo.defaultCookingMethod);
+      }
       warnings.push(`${combo.name} 使用套餐默认构成估算；若实际克数不同，请补充主食或蛋白重量。`);
       continue;
     }
 
-    const food = findFoodMatch(token, foodAliasIndex);
+    const food = findFoodMatch(token, regularFoodAliasIndex) ?? findContextualFoodMatch(token, combos);
     if (!food) {
       const inferred = inferredTokenMap.get(normalizeLookupToken(token));
       if (inferred) {
@@ -727,9 +922,18 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
     }
 
     const quantity = parseQuantity(token, food);
-    const parsedItem = createParsedItem(food, token, quantity, quantity.explicit ? undefined : `按默认份量估算 ${food.defaultServing.amount}${food.defaultServing.unit}`);
+    const parsedItem = createParsedItem(
+      food,
+      token,
+      quantity,
+      quantity.explicit ? undefined : `按默认份量估算 ${food.defaultServing.amount}${food.defaultServing.unit}`,
+    );
     parsedItems.push(parsedItem);
     explicitFoodNames.add(food.name);
+
+    if (food.supportsCookingOilRule) {
+      oilEligibleCategories.add(food.category);
+    }
 
     if (!quantity.explicit && food.category !== "custom") {
       warnings.push(`${food.name} 未写明份量，按默认份量估算。`);
@@ -750,9 +954,37 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
         milliliters: component.unit === "ml" ? component.amount * comboEntry.count : undefined,
         explicit: false,
       };
-      parsedItems.push(
-        createParsedItem(food, comboEntry.token, quantity, `${comboEntry.combo.name} 默认构成`),
-      );
+      parsedItems.push(createParsedItem(food, comboEntry.token, quantity, `${comboEntry.combo.name} 默认构成`));
+      if (food.supportsCookingOilRule) {
+        oilEligibleCategories.add(food.category);
+      }
+    }
+  }
+
+  const oilApplicable = isOilApplicable(parsedItems.length > 0, combos.length > 0, oilEligibleCategories);
+  const cookingMethodResolution = resolveCookingMethod({
+    text,
+    cookingMethod: options.cookingMethod,
+    comboCookingMethods,
+    oilApplicable,
+  });
+  const rinseOil = options.rinseOil === true || (options.rinseOil !== true && detectRinseOilFromText(text));
+
+  if (cookingMethodResolution.method) {
+    if (cookingMethodResolution.source === "text") {
+      warnings.push(`未手动选择烹调方式，按文本识别为${cookingOilRules[cookingMethodResolution.method].label}估算保留油。`);
+    } else if (cookingMethodResolution.source === "combo") {
+      warnings.push(`未手动选择烹调方式，按套餐默认烹调方式 ${cookingOilRules[cookingMethodResolution.method].label} 估算保留油。`);
+    } else if (cookingMethodResolution.source === "default") {
+      warnings.push("未手动选择烹调方式，按默认正常炒估算保留油。");
+    }
+
+    const retainedOilG = resolveRetainedOil(cookingMethodResolution.method, rinseOil);
+    if (retainedOilG > 0) {
+      parsedItems.push(createRuleOilParsedItem(text, cookingMethodResolution.method, retainedOilG, rinseOil));
+      if (rinseOil) {
+        warnings.push("已按涮油处理，将保留油按 50% 折算。");
+      }
     }
   }
 
@@ -776,7 +1008,12 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
 }
 
 function enrichMealEntry(entry: MealLogEntry, options?: MealParseOptions) {
-  const parsed = parseMealText(entry.content, options);
+  const parsed = parseMealText(entry.content, {
+    ...options,
+    cookingMethod: entry.cookingMethod,
+    rinseOil: entry.rinseOil,
+  });
+
   return {
     entry: {
       ...entry,
@@ -858,10 +1095,7 @@ export function summarizeReportNutrition(
     fatsG: roundNutrition(nutritionTotals.fatsG - targetMacros.fatsG),
   };
 
-  const nutritionWarnings = uniqueWarnings(
-    slotKeys.flatMap((slot) => enrichedMealLog[slot].analysisWarnings ?? []),
-  );
-
+  const nutritionWarnings = uniqueWarnings(slotKeys.flatMap((slot) => enrichedMealLog[slot].analysisWarnings ?? []));
   const unknownTokens = mergeUnknownTokens([
     ...breakfastParsed.unknownTokens,
     ...lunchParsed.unknownTokens,

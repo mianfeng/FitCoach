@@ -64,12 +64,12 @@ export async function POST(request: Request) {
         nutritionSummary.status === "ready"
           ? {
               status: "ready" as const,
-              source: "gemini" as const,
+              source: "hybrid" as const,
               computedAt: nutritionSummary.computedAt,
             }
           : {
               status: "pending" as const,
-              source: "gemini" as const,
+              source: "hybrid" as const,
               error: nutritionSummary.error,
             },
     };

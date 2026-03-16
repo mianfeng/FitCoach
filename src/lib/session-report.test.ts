@@ -41,8 +41,8 @@ describe("session report compatibility", () => {
       fatigue: 5,
       mealLog: {
         breakfast: { content: "鸡蛋", adherence: "on_plan" },
-        lunch: { content: "米饭", adherence: "on_plan" },
-        dinner: { content: "牛肉", adherence: "adjusted", deviationNote: "时间偏晚" },
+        lunch: { content: "米饭", adherence: "on_plan", cookingMethod: "poached_steamed", rinseOil: false },
+        dinner: { content: "牛肉", adherence: "adjusted", deviationNote: "时间偏晚", cookingMethod: "stir_fry_normal", rinseOil: true },
         preWorkout: { content: "香蕉", adherence: "on_plan" },
         postWorkout: { content: "牛奶", adherence: "on_plan" },
         postWorkoutSource: "dedicated",
@@ -115,6 +115,32 @@ describe("session report compatibility", () => {
 
     expect(report.reportVersion).toBe(1);
     expect(report.mealLog?.dinner.content).toBe("面条");
+    expect(report.mealLog?.dinner.rinseOil).toBe(false);
+  });
+
+  it("preserves cooking metadata on structured meal entries", () => {
+    const report = normalizeStoredSessionReport({
+      id: "structured-1",
+      date: "2026-03-12",
+      performedDay: "rest",
+      bodyWeightKg: 60,
+      sleepHours: 7.5,
+      fatigue: 4,
+      completed: false,
+      trainingReportText: "",
+      mealLog: {
+        breakfast: { content: "鸡蛋", adherence: "on_plan", cookingMethod: "poached_steamed", rinseOil: false },
+        lunch: { content: "辣椒炒肉饭", adherence: "adjusted", cookingMethod: "stir_fry_heavy", rinseOil: true },
+        dinner: { content: "", adherence: "missed" },
+        preWorkout: { content: "", adherence: "missed" },
+        postWorkout: { content: "", adherence: "missed" },
+        postWorkoutSource: "dedicated",
+      },
+      createdAt: "2026-03-12T10:00:00.000Z",
+    });
+
+    expect(report.mealLog?.lunch.cookingMethod).toBe("stir_fry_heavy");
+    expect(report.mealLog?.lunch.rinseOil).toBe(true);
   });
 });
 

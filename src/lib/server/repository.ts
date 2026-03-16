@@ -83,6 +83,15 @@ type ReportMealRow = {
   content: string;
   adherence: "on_plan" | "adjusted" | "missed";
   deviation_note?: string | null;
+  cooking_method?:
+    | "poached_steamed"
+    | "stir_fry_light"
+    | "stir_fry_normal"
+    | "stir_fry_heavy"
+    | "grill_pan_sear"
+    | "deep_fry"
+    | null;
+  rinse_oil?: boolean | null;
   post_workout_source?: "dedicated" | "lunch" | "dinner" | null;
   parsed_items?: ParsedMealItem[] | null;
   estimated_kcal?: number | null;
@@ -273,6 +282,8 @@ function buildMealLogFromRows(rows: ReportMealRow[] | undefined) {
       content: row.content ?? "",
       adherence: row.adherence ?? "adjusted",
       deviationNote: row.deviation_note ?? "",
+      cookingMethod: row.cooking_method ?? undefined,
+      rinseOil: row.rinse_oil ?? false,
       parsedItems: row.parsed_items ?? [],
       nutritionEstimate:
         row.estimated_kcal != null &&
@@ -338,6 +349,8 @@ function toMealRows(report: SessionReport): ReportMealRow[] {
     content: mealLog[slot].content,
     adherence: mealLog[slot].adherence,
     deviation_note: mealLog[slot].deviationNote ?? null,
+    cooking_method: mealLog[slot].cookingMethod ?? null,
+    rinse_oil: mealLog[slot].rinseOil ?? false,
     post_workout_source: slot === "postWorkout" ? mealLog.postWorkoutSource : null,
     parsed_items: mealLog[slot].parsedItems ?? [],
     estimated_kcal: mealLog[slot].nutritionEstimate?.calories ?? null,

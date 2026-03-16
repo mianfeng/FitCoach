@@ -103,31 +103,69 @@ describe("nutrition parser", () => {
   it("estimates combo defaults when only combo text is provided", () => {
     const result = parseMealText("烤鱼饭");
 
-    expect(result.parsedItems.map((item) => item.name)).toEqual(["鱼肉", "米饭", "食用油"]);
-    expect(result.nutritionEstimate.calories).toBe(552.7);
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["鱼肉", "米饭", "烹调保留油"]);
+    expect(result.nutritionEstimate.calories).toBe(526.2);
     expect(result.nutritionEstimate.proteinG).toBe(39.5);
     expect(result.nutritionEstimate.carbsG).toBe(64.8);
-    expect(result.nutritionEstimate.fatsG).toBe(14.8);
+    expect(result.nutritionEstimate.fatsG).toBe(11.8);
     expect(result.analysisWarnings.some((warning) => warning.includes("烤鱼饭"))).toBe(true);
   });
 
   it("estimates stir-fry dishes with default oil", () => {
     const result = parseMealText("辣椒炒肉");
 
-    expect(result.parsedItems.map((item) => item.name)).toEqual(["猪肉", "辣椒", "食用油"]);
-    expect(result.nutritionEstimate.calories).toBe(376.4);
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["猪肉", "辣椒", "烹调保留油"]);
+    expect(result.nutritionEstimate.calories).toBe(358.7);
     expect(result.nutritionEstimate.proteinG).toBe(27.6);
     expect(result.nutritionEstimate.carbsG).toBe(4.8);
-    expect(result.nutritionEstimate.fatsG).toBe(28.2);
+    expect(result.nutritionEstimate.fatsG).toBe(26.2);
   });
 
   it("parses chicken-leg rice components and avoids unknown inflation", () => {
     const result = parseMealText("鸡腿饭，270g米饭，去皮鸡腿一只，一块豆干，一颗卤蛋");
 
-    expect(result.parsedItems.map((item) => item.name)).toEqual(["米饭", "去皮鸡腿", "豆干", "卤蛋", "食用油"]);
-    expect(result.nutritionEstimate.calories).toBe(747.2);
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["米饭", "去皮鸡腿", "豆干", "卤蛋", "烹调保留油"]);
+    expect(result.nutritionEstimate.calories).toBe(764.9);
     expect(result.unknownTokens).toHaveLength(0);
     expect(result.analysisWarnings.some((warning) => warning.includes("鸡腿饭"))).toBe(true);
+  });
+
+  it("adds retained oil from selected cooking method and halves it when rinsed", () => {
+    const result = parseMealText("辣椒炒肉饭，米饭200g，肉100g", {
+      cookingMethod: "stir_fry_heavy",
+      rinseOil: true,
+    });
+
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["米饭", "猪肉", "辣椒", "烹调保留油"]);
+    expect(result.parsedItems.at(-1)?.fatsG).toBe(6);
+    expect(result.nutritionEstimate.calories).toBe(529);
+    expect(result.nutritionEstimate.proteinG).toBe(28.4);
+    expect(result.nutritionEstimate.carbsG).toBe(56.6);
+    expect(result.nutritionEstimate.fatsG).toBe(21.8);
+  });
+
+  it("does not add extra oil to custom dishes even when cooking method is selected", () => {
+    const customDishes: NutritionDish[] = [
+      {
+        id: "dish-spicy-beef-rice",
+        name: "辣椒炒牛肉饭",
+        aliases: ["牛肉饭套餐"],
+        macros: {
+          proteinG: 30,
+          carbsG: 68,
+          fatsG: 15,
+        },
+      },
+    ];
+    const result = parseMealText("辣椒炒牛肉饭", {
+      customDishes,
+      cookingMethod: "stir_fry_heavy",
+      rinseOil: true,
+    });
+
+    expect(result.parsedItems).toHaveLength(1);
+    expect(result.parsedItems[0]?.name).toBe("辣椒炒牛肉饭");
+    expect(result.nutritionEstimate.fatsG).toBe(15);
   });
 
   it("uses inferred AI estimate for unknown tokens without warning", () => {

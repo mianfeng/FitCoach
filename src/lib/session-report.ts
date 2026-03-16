@@ -53,7 +53,7 @@ export function createEmptyMealEntry(): MealLogEntry {
     adherence: "on_plan",
     deviationNote: "",
     cookingMethod: undefined,
-    rinseOil: false,
+    rinseOil: undefined,
   };
 }
 
@@ -88,7 +88,7 @@ function toStructuredEntry(value: string | undefined) {
     adherence: content ? "adjusted" : "missed",
     deviationNote: "",
     cookingMethod: undefined,
-    rinseOil: false,
+    rinseOil: undefined,
     parsedItems: [],
     nutritionEstimate: {
       calories: 0,
@@ -107,7 +107,7 @@ function normalizeMealEntry(value: MealLogEntry | string | undefined) {
       adherence: value.adherence,
       deviationNote: value.deviationNote ?? "",
       cookingMethod: value.cookingMethod,
-      rinseOil: value.rinseOil ?? false,
+      rinseOil: value.rinseOil,
       parsedItems: value.parsedItems ?? [],
       nutritionEstimate: value.nutritionEstimate,
       analysisWarnings: value.analysisWarnings ?? [],

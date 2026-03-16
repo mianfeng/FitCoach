@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { SectionCard } from "@/components/section-card";
+import { detectRinseOilFromText } from "@/lib/nutrition";
 import {
   buildMealLogForSubmit,
   countFilledMealSlots,
@@ -844,6 +845,9 @@ export function HomeDashboard({
                 const isLinkedSlot =
                   (field.key === "lunch" && previewMealLog.postWorkoutSource === "lunch") ||
                   (field.key === "dinner" && previewMealLog.postWorkoutSource === "dinner");
+                const effectiveRinseOil =
+                  currentEntry.rinseOil === true ||
+                  (currentEntry.rinseOil == null && detectRinseOilFromText(currentEntry.content));
 
                 return (
                   <label key={field.key} className="block rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4">
@@ -905,7 +909,7 @@ export function HomeDashboard({
                       <label className="flex items-center gap-3 rounded-[14px] border border-black/10 bg-white px-3 py-3 text-sm text-[#151811]">
                         <input
                           type="checkbox"
-                          checked={currentEntry.rinseOil ?? false}
+                          checked={effectiveRinseOil}
                           onChange={(event) => updateMeal(field.key, { rinseOil: event.target.checked })}
                           disabled={isMirroredPostWorkout}
                           className="h-4 w-4 accent-[#151811] disabled:opacity-50"
@@ -920,14 +924,14 @@ export function HomeDashboard({
                     {currentEntry.content.trim() ? (
                       <div className="mt-3 rounded-[16px] border border-black/10 bg-white px-3 py-3">
                         <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Parsed Nutrition</div>
-                        {currentEntry.cookingMethod || currentEntry.rinseOil ? (
+                        {currentEntry.cookingMethod || effectiveRinseOil ? (
                           <div className="mt-2 flex flex-wrap gap-2">
                             {currentEntry.cookingMethod ? (
                               <span className="rounded-full bg-[#eef3e2] px-2 py-1 text-[10px] text-[#44512a]">
                                 {mealCookingMethodLabels[currentEntry.cookingMethod]}
                               </span>
                             ) : null}
-                            {currentEntry.rinseOil ? (
+                            {effectiveRinseOil ? (
                               <span className="rounded-full bg-[#fff1c7] px-2 py-1 text-[10px] text-[#6d5620]">涮油</span>
                             ) : null}
                           </div>

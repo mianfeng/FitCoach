@@ -163,7 +163,11 @@ const cookingControlTokens = new Set([
   "涮油",
 ]);
 
-const rinseOilKeywords = ["涮油", "过水去油", "冲油"];
+const rinseOilKeywords = ["涮油", "过水去油", "冲油", "清水去油", "已清水去油", "过水去脂"];
+
+function stripParentheticalText(input: string) {
+  return input.replace(/[（(][^（）()]*[)）]/g, "");
+}
 
 const foodLibrary: FoodLibraryItem[] = [
   {
@@ -341,6 +345,19 @@ const foodLibrary: FoodLibraryItem[] = [
     defaultServing: { amount: 80, unit: "g", grams: 80 },
   },
   {
+    id: "mixed_vegetables",
+    name: "蔬菜",
+    aliases: ["蔬菜", "青菜", "菠菜", "莴笋", "冬瓜"],
+    category: "vegetable",
+    basis: "per100g",
+    calories: 20,
+    proteinG: 1.2,
+    carbsG: 3.8,
+    fatsG: 0.2,
+    supportsCookingOilRule: true,
+    defaultServing: { amount: 100, unit: "g", grams: 100 },
+  },
+  {
     id: "tofu_dry",
     name: "豆干",
     aliases: ["豆干", "豆腐干"],
@@ -375,6 +392,18 @@ const foodLibrary: FoodLibraryItem[] = [
     carbsG: 5,
     fatsG: 3,
     defaultServing: { amount: 250, unit: "ml", milliliters: 250 },
+  },
+  {
+    id: "milk_powder",
+    name: "奶粉",
+    aliases: ["奶粉", "全脂奶粉", "脱脂奶粉"],
+    category: "drink",
+    basis: "per100g",
+    calories: 496,
+    proteinG: 24,
+    carbsG: 38,
+    fatsG: 26,
+    defaultServing: { amount: 25, unit: "g", grams: 25 },
   },
   {
     id: "yogurt",
@@ -517,14 +546,45 @@ function extractChineseNumber(value: string) {
 }
 
 function normalizeLookupToken(input: string) {
-  return input.replace(/\s+/g, "").toLowerCase();
+  return stripParentheticalText(input).replace(/\s+/g, "").toLowerCase();
 }
 
 function splitMealTokens(text: string) {
-  return text
-    .split(/[，,\/+\n；;、]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+  const tokens: string[] = [];
+  let current = "";
+  let parenthesisDepth = 0;
+
+  for (const char of text) {
+    if (char === "(" || char === "（") {
+      parenthesisDepth += 1;
+      current += char;
+      continue;
+    }
+
+    if (char === ")" || char === "）") {
+      parenthesisDepth = Math.max(0, parenthesisDepth - 1);
+      current += char;
+      continue;
+    }
+
+    if (parenthesisDepth === 0 && /[，,\/+\n；;、]/.test(char)) {
+      const token = current.trim();
+      if (token) {
+        tokens.push(token);
+      }
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  const finalToken = current.trim();
+  if (finalToken) {
+    tokens.push(finalToken);
+  }
+
+  return tokens;
 }
 
 function detectCookingMethodFromText(text: string): MealCookingMethod | undefined {
@@ -537,9 +597,23 @@ function detectCookingMethodFromText(text: string): MealCookingMethod | undefine
   return undefined;
 }
 
-function detectRinseOilFromText(text: string) {
+export function detectRinseOilFromText(text: string) {
   const normalized = normalizeLookupToken(text);
   return rinseOilKeywords.some((keyword) => normalized.includes(normalizeLookupToken(keyword)));
+}
+
+function formatQuantityValue(value: number) {
+  return Number.isInteger(value) ? String(value) : String(roundNutrition(value));
+}
+
+function formatQuantityLabel(quantity: QuantityInfo) {
+  if (quantity.grams != null) {
+    return `${formatQuantityValue(quantity.grams)}g`;
+  }
+  if (quantity.milliliters != null) {
+    return `${formatQuantityValue(quantity.milliliters)}ml`;
+  }
+  return `${formatQuantityValue(quantity.amount)}${quantity.unit}`;
 }
 
 function isCookingControlToken(token: string) {
@@ -892,7 +966,6 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
       if (combo.defaultCookingMethod) {
         comboCookingMethods.push(combo.defaultCookingMethod);
       }
-      warnings.push(`${combo.name} 使用套餐默认构成估算；若实际克数不同，请补充主食或蛋白重量。`);
       continue;
     }
 
@@ -941,6 +1014,7 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
   }
 
   for (const comboEntry of combos) {
+    const defaultedComponents: string[] = [];
     for (const component of comboEntry.combo.components) {
       const food = foodLibrary.find((item) => item.id === component.foodId);
       if (!food || explicitFoodNames.has(food.name)) {
@@ -955,9 +1029,16 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
         explicit: false,
       };
       parsedItems.push(createParsedItem(food, comboEntry.token, quantity, `${comboEntry.combo.name} 默认构成`));
+      defaultedComponents.push(`${food.name}${formatQuantityLabel(quantity)}`);
       if (food.supportsCookingOilRule) {
         oilEligibleCategories.add(food.category);
       }
+    }
+
+    if (defaultedComponents.length > 0) {
+      warnings.push(
+        `${comboEntry.combo.name} 使用套餐默认补全：${defaultedComponents.join("、")}；若实际克数不同，请继续补充。`,
+      );
     }
   }
 

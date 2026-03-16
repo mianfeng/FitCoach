@@ -283,7 +283,7 @@ function buildMealLogFromRows(rows: ReportMealRow[] | undefined) {
       adherence: row.adherence ?? "adjusted",
       deviationNote: row.deviation_note ?? "",
       cookingMethod: row.cooking_method ?? undefined,
-      rinseOil: row.rinse_oil ?? false,
+      rinseOil: row.rinse_oil ?? undefined,
       parsedItems: row.parsed_items ?? [],
       nutritionEstimate:
         row.estimated_kcal != null &&
@@ -350,7 +350,7 @@ function toMealRows(report: SessionReport): ReportMealRow[] {
     adherence: mealLog[slot].adherence,
     deviation_note: mealLog[slot].deviationNote ?? null,
     cooking_method: mealLog[slot].cookingMethod ?? null,
-    rinse_oil: mealLog[slot].rinseOil ?? false,
+    rinse_oil: mealLog[slot].rinseOil ?? null,
     post_workout_source: slot === "postWorkout" ? mealLog.postWorkoutSource : null,
     parsed_items: mealLog[slot].parsedItems ?? [],
     estimated_kcal: mealLog[slot].nutritionEstimate?.calories ?? null,

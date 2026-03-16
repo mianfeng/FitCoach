@@ -97,7 +97,7 @@ describe("nutrition parser", () => {
     expect(result.nutritionEstimate.proteinG).toBe(24.5);
     expect(result.nutritionEstimate.carbsG).toBe(78.8);
     expect(result.nutritionEstimate.fatsG).toBe(13.8);
-    expect(result.analysisWarnings.some((warning) => warning.includes("鸡排饭"))).toBe(true);
+    expect(result.analysisWarnings).toHaveLength(0);
   });
 
   it("estimates combo defaults when only combo text is provided", () => {
@@ -127,7 +127,7 @@ describe("nutrition parser", () => {
     expect(result.parsedItems.map((item) => item.name)).toEqual(["米饭", "去皮鸡腿", "豆干", "卤蛋", "烹调保留油"]);
     expect(result.nutritionEstimate.calories).toBe(764.9);
     expect(result.unknownTokens).toHaveLength(0);
-    expect(result.analysisWarnings.some((warning) => warning.includes("鸡腿饭"))).toBe(true);
+    expect(result.analysisWarnings.some((warning) => warning.includes("套餐默认烹调方式"))).toBe(true);
   });
 
   it("adds retained oil from selected cooking method and halves it when rinsed", () => {
@@ -142,6 +142,26 @@ describe("nutrition parser", () => {
     expect(result.nutritionEstimate.proteinG).toBe(28.4);
     expect(result.nutritionEstimate.carbsG).toBe(56.6);
     expect(result.nutritionEstimate.fatsG).toBe(21.8);
+  });
+
+  it("recognizes grouped vegetables and milk powder without splitting parenthetical notes", () => {
+    const result = parseMealText("25g奶粉，蔬菜100g(冬瓜、菠菜、莴笋)");
+
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["奶粉", "蔬菜"]);
+    expect(result.parsedItems[0]?.grams).toBe(25);
+    expect(result.parsedItems[1]?.grams).toBe(100);
+    expect(result.unknownTokens).toHaveLength(0);
+    expect(result.analysisWarnings).toHaveLength(0);
+  });
+
+  it("uses text rinse-oil detection and only warns for combo components still using defaults", () => {
+    const result = parseMealText("辣椒炒肉饭，已清水去油，其中米饭220g，瘦肉120g");
+
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["米饭", "猪肉", "辣椒", "烹调保留油"]);
+    expect(result.parsedItems.at(-1)?.fatsG).toBe(4);
+    expect(result.analysisWarnings.some((warning) => warning.includes("主食或蛋白重量"))).toBe(false);
+    expect(result.analysisWarnings.some((warning) => warning.includes("辣椒80g"))).toBe(true);
+    expect(result.analysisWarnings.some((warning) => warning.includes("50%"))).toBe(true);
   });
 
   it("does not add extra oil to custom dishes even when cooking method is selected", () => {
@@ -217,6 +237,6 @@ describe("nutrition summarizer", () => {
     expect(result.mealLog?.breakfast.parsedItems?.length).toBeGreaterThan(0);
     expect(result.nutritionTotals.calories).toBeGreaterThan(1200);
     expect(result.nutritionGap.calories).toBeLessThan(0);
-    expect(result.nutritionWarnings.some((warning) => warning.includes("鸡排饭"))).toBe(true);
+    expect(result.nutritionWarnings).toHaveLength(0);
   });
 });

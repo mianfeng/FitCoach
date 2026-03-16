@@ -115,7 +115,7 @@ describe("session report compatibility", () => {
 
     expect(report.reportVersion).toBe(1);
     expect(report.mealLog?.dinner.content).toBe("面条");
-    expect(report.mealLog?.dinner.rinseOil).toBe(false);
+    expect(report.mealLog?.dinner.rinseOil).toBeUndefined();
   });
 
   it("preserves cooking metadata on structured meal entries", () => {

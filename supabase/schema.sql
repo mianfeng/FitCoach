@@ -91,7 +91,9 @@ alter table if exists session_report_meals add column if not exists estimated_ca
 alter table if exists session_report_meals add column if not exists estimated_fats_g numeric;
 alter table if exists session_report_meals add column if not exists analysis_warnings text[] not null default '{}';
 alter table if exists session_report_meals add column if not exists cooking_method text;
-alter table if exists session_report_meals add column if not exists rinse_oil boolean not null default false;
+alter table if exists session_report_meals add column if not exists rinse_oil boolean;
+alter table if exists session_report_meals alter column rinse_oil drop not null;
+alter table if exists session_report_meals alter column rinse_oil drop default;
 
 create table if not exists nutrition_dishes (
   id text primary key,

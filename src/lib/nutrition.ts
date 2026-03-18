@@ -498,6 +498,16 @@ const comboLibrary: ComboDefinition[] = [
     ],
   },
   {
+    id: "chicken_bao",
+    name: "鸡公煲",
+    aliases: ["鸡公煲", "重庆鸡公煲"],
+    defaultCookingMethod: "stir_fry_heavy",
+    components: [
+      { foodId: "chicken_leg_skinless", amount: 50, unit: "g" },
+      { foodId: "rice", amount:300, unit: "g" },
+    ],
+  },
+  {
     id: "spicy_pork",
     name: "辣椒炒肉",
     aliases: ["辣椒炒肉", "青椒炒肉", "小炒肉"],

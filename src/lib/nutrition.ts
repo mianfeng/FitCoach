@@ -488,6 +488,15 @@ const comboLibrary: ComboDefinition[] = [
     ],
   },
   {
+    id: "nudles_with_veggies",
+    name: "煮面",
+    aliases: ["煮面", "面条加菜"],
+    defaultCookingMethod: "stir_fry_heavy",
+    components: [
+      { foodId: "noodles", amount: 200, unit: "g" },
+    ],
+  },
+  {
     id: "chicken_cutlet_rice",
     name: "鸡排饭",
     aliases: ["鸡排饭"],

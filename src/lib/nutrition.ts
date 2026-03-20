@@ -214,7 +214,7 @@ const foodLibrary: FoodLibraryItem[] = [
     basis: "per100g",
     calories: 137,
     proteinG: 4.5,
-    carbsG: 27,
+    carbsG: 72,
     fatsG: 1.7,
     defaultServing: { amount: 250, unit: "g", grams: 250 },
   },

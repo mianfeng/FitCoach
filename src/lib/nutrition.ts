@@ -478,6 +478,15 @@ const comboLibrary: ComboDefinition[] = [
       { foodId: "rice", amount: 250, unit: "g" },
     ],
   },
+{
+    id: "chaocai",
+    name: "炒菜",
+    aliases: ["炒菜"],
+    defaultCookingMethod: "stir_fry_normal",
+    components: [
+      { foodId: "rice", amount: 250, unit: "g" },
+    ],
+  },
   {
     id: "chicken_cutlet_rice",
     name: "鸡排饭",

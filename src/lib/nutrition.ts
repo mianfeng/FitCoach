@@ -122,9 +122,9 @@ const unitMap: Record<string, FoodPortionUnit> = {
 
 const cookingOilRules: Record<MealCookingMethod, CookingOilRule> = {
   poached_steamed: { baseOilG: 0, label: "水煮/清蒸" },
-  stir_fry_light: { baseOilG: 4, label: "少油炒" },
-  stir_fry_normal: { baseOilG: 8, label: "正常炒" },
-  stir_fry_heavy: { baseOilG: 18, label: "重油炒" },
+  stir_fry_light: { baseOilG: 8, label: "少油炒" },
+  stir_fry_normal: { baseOilG: 12, label: "正常炒" },
+  stir_fry_heavy: { baseOilG: 16, label: "重油炒" },
   grill_pan_sear: { baseOilG: 5, label: "烤/煎" },
   deep_fry: { baseOilG: 18, label: "炸" },
 };

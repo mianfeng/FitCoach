@@ -71,7 +71,7 @@ describe("computeMealLogNutritionWithGemini", () => {
     }
 
     expect(mockGenerateContent).not.toHaveBeenCalled();
-    expect(result.nutritionTotals.calories).toBe(1317.5);
+    expect(result.nutritionTotals.calories).toBe(1313.5);
     expect(result.nutritionTotals.proteinG).toBe(67.6);
     expect(result.nutritionTotals.carbsG).toBe(203.4);
     expect(result.nutritionTotals.fatsG).toBe(25.5);
@@ -122,11 +122,11 @@ describe("computeMealLogNutritionWithGemini", () => {
     }
 
     expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-    expect(result.nutritionTotals.calories).toBe(643.5);
+    expect(result.nutritionTotals.calories).toBe(630.9);
     expect(result.nutritionTotals.proteinG).toBe(30);
     expect(result.nutritionTotals.carbsG).toBe(82.5);
     expect(result.nutritionTotals.fatsG).toBe(20.1);
     expect(result.mealLog.lunch.parsedItems?.[0]?.quantitySource).toBe("ai");
-    expect(result.mealLog.lunch.nutritionEstimate?.calories).toBe(520);
+    expect(result.mealLog.lunch.nutritionEstimate?.calories).toBe(506);
   });
 });

@@ -421,13 +421,120 @@ function buildLatestReportSummary(report: SessionReport | null | undefined) {
   ].join(" ");
 }
 
-function buildGapText(actual: number, target: number, label: string) {
-  const delta = Math.round((actual - target) * 10) / 10;
-  if (Math.abs(delta) < 0.05) {
+function buildGapText(delta: number, label: string, unit: string) {
+  const normalizedDelta = Math.round(delta * 10) / 10;
+  const absDelta = Math.abs(normalizedDelta);
+  const suffix = unit ? ` ${unit}` : "";
+
+  if (absDelta < 0.1) {
     return `${label}基本达标`;
   }
 
-  return delta > 0 ? `${label}超出 ${delta}` : `${label}还差 ${Math.abs(delta)}`;
+  return normalizedDelta > 0 ? `${label}超出 ${absDelta}${suffix}` : `${label}还差 ${absDelta}${suffix}`;
+}
+
+function getDeviationRatio(gap: number, target: number) {
+  if (target <= 0) {
+    return 0;
+  }
+
+  return Math.abs(gap / target);
+}
+
+function getNutritionDeviationSummary(nutritionGap: SessionReport["nutritionGap"], targetNutrition: {
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatsG: number;
+}) {
+  if (!nutritionGap) {
+    return null;
+  }
+
+  const calories = getDeviationRatio(nutritionGap.calories, targetNutrition.calories);
+  const proteinG = getDeviationRatio(nutritionGap.proteinG, targetNutrition.proteinG);
+  const carbsG = getDeviationRatio(nutritionGap.carbsG, targetNutrition.carbsG);
+  const fatsG = getDeviationRatio(nutritionGap.fatsG, targetNutrition.fatsG);
+  const averageMacro = average([proteinG, carbsG, fatsG]);
+
+  return {
+    calories,
+    proteinG,
+    carbsG,
+    fatsG,
+    averageMacro,
+    moderateCount: [calories, proteinG, carbsG, fatsG].filter((value) => value >= 0.15).length,
+    majorCount: [calories, proteinG, carbsG, fatsG].filter((value) => value >= 0.3).length,
+  };
+}
+
+function resolveDailyReviewRating(params: {
+  report: SessionReport;
+  mealSummary: ReturnType<typeof summarizeMealAdherence>;
+  nextDayDecision: NonNullable<SessionReport["nextDayDecision"]>;
+  deviationSummary: ReturnType<typeof getNutritionDeviationSummary>;
+}) {
+  const { report, mealSummary, nextDayDecision, deviationSummary } = params;
+  const averageRpeValue = averageReportRpe(report);
+  const droppedSetCount = countDroppedSets(report);
+  const highStress = report.fatigue >= 9 || droppedSetCount >= 2 || averageRpeValue >= 9.2;
+  const moderateStress =
+    report.fatigue >= 7 || droppedSetCount >= 1 || averageRpeValue >= 8.7 || nextDayDecision.trainingReadiness === "hold";
+  const severeNutritionDrift =
+    deviationSummary != null &&
+    (deviationSummary.majorCount >= 2 ||
+      deviationSummary.averageMacro >= 0.28 ||
+      deviationSummary.proteinG >= 0.3 ||
+      (deviationSummary.calories >= 0.3 && deviationSummary.proteinG >= 0.2));
+  const moderateNutritionDrift =
+    deviationSummary != null &&
+    (deviationSummary.majorCount >= 1 ||
+      deviationSummary.moderateCount >= 2 ||
+      deviationSummary.averageMacro >= 0.15 ||
+      deviationSummary.proteinG >= 0.15);
+
+  if (
+    mealSummary.missed >= 3 ||
+    (nextDayDecision.trainingReadiness === "deload" && highStress) ||
+    (severeNutritionDrift && (mealSummary.missed >= 1 || moderateStress || nextDayDecision.trainingReadiness === "deload"))
+  ) {
+    return {
+      badge: "🔴 灾难",
+      reason: "今天出现了多项明显偏离，先把饮食或恢复拉回计划线，再谈推进。",
+    };
+  }
+
+  if (
+    mealSummary.missed >= 1 ||
+    moderateStress ||
+    nextDayDecision.trainingReadiness === "deload" ||
+    moderateNutritionDrift
+  ) {
+    return {
+      badge: "🟡 警告",
+      reason: "今天有一到两个关键点需要纠偏，但还没到失控。",
+    };
+  }
+
+  return {
+    badge: "🟢 完美",
+    reason: "整体执行仍在可控范围，营养、训练和恢复没有明显偏离。",
+  };
+}
+
+function buildMealNutritionLine(label: string, estimate?: SessionReport["nutritionTotals"]) {
+  return `${label}：${estimate?.calories ?? 0} kcal（P ${estimate?.proteinG ?? 0} / C ${estimate?.carbsG ?? 0} / F ${estimate?.fatsG ?? 0}）`;
+}
+
+function buildGapAnalysisLine(
+  nutritionGap: NonNullable<SessionReport["nutritionGap"]>,
+) {
+  return [
+    buildGapText(nutritionGap.calories, "总热量", "kcal"),
+    buildGapText(nutritionGap.proteinG, "蛋白质", "g"),
+    buildGapText(nutritionGap.carbsG, "碳水", "g"),
+    buildGapText(nutritionGap.fatsG, "脂肪", "g"),
+  ].join("；");
 }
 
 function buildStrictActionItems(params: {
@@ -597,69 +704,65 @@ export function buildStrictDailyReviewMarkdown(params: {
     params.nextDayDecision ??
     report.nextDayDecision ?? {
       trainingReadiness: "hold" as const,
-      nutritionFocus: "Stabilize meal execution first.",
-      recoveryFocus: "Stabilize sleep and hydration first.",
-      priorityNotes: ["Recover baseline rhythm first"],
+      nutritionFocus: "先把饮食执行拉回计划线。",
+      recoveryFocus: "先把睡眠和补水稳住。",
+      priorityNotes: ["先恢复到基本节奏"],
     };
   const targetKcal = targetNutrition.calories;
-  const totalDeviationRatio = nutritionSummary
+  const deviationSummary = nutritionSummary
+    ? getNutritionDeviationSummary(nutritionSummary.nutritionGap, targetNutrition)
+    : null;
+  const totalDeviationRatio = deviationSummary
     ? Math.max(
-        targetKcal > 0 ? Math.abs(nutritionSummary.nutritionGap.calories / targetKcal) : 0,
-        targetMacros.proteinG > 0 ? Math.abs(nutritionSummary.nutritionGap.proteinG / targetMacros.proteinG) : 0,
-        targetMacros.carbsG > 0 ? Math.abs(nutritionSummary.nutritionGap.carbsG / targetMacros.carbsG) : 0,
-        targetMacros.fatsG > 0 ? Math.abs(nutritionSummary.nutritionGap.fatsG / targetMacros.fatsG) : 0,
+        deviationSummary.calories,
+        deviationSummary.proteinG,
+        deviationSummary.carbsG,
+        deviationSummary.fatsG,
       )
     : 0;
+  const mealSummary = summarizeMealAdherence(normalizedMealLog);
 
-  let overloadStatus = "on track";
+  let overloadStatus = "达标";
   if (nextDayDecision.trainingReadiness === "deload") {
-    overloadStatus = "needs deload";
+    overloadStatus = "需减载";
   } else if (nextDayDecision.trainingReadiness === "hold" || !report.completed) {
-    overloadStatus = "hold";
+    overloadStatus = "停滞";
   }
 
-  let ratingBadge = "GREEN";
-  let ratingReason = "Nutrition and recovery are in a controllable range.";
-  if (
-    totalDeviationRatio > 0.25 ||
-    report.fatigue >= 8 ||
-    nextDayDecision.trainingReadiness === "deload" ||
-    countDroppedSets(report) >= 2
-  ) {
-    ratingBadge = "RED";
-    ratingReason = "Key nutrition or recovery signals are clearly off target.";
-  } else if (
-    totalDeviationRatio > 0.1 ||
-    nextDayDecision.trainingReadiness === "hold" ||
-    averageReportRpe(report) >= 8.7
-  ) {
-    ratingBadge = "ORANGE";
-    ratingReason = "One to two key signals are drifting and need correction.";
-  }
+  const rating = resolveDailyReviewRating({
+    report,
+    mealSummary,
+    nextDayDecision,
+    deviationSummary,
+  });
 
   const trainingComment =
     report.performedDay === "rest"
-      ? "Rest day: prioritize recovery quality and meal execution."
-      : `Completed ${getPerformedExerciseCount(report)}/${report.exerciseResults?.length ?? 0} exercises, avg RPE ${averageReportRpe(report).toFixed(1)}, dropped sets ${countDroppedSets(report)}.`;
+      ? "今天是休息日，重点看恢复质量和饮食完整度。"
+      : `完成 ${getPerformedExerciseCount(report)}/${report.exerciseResults?.length ?? 0} 个动作，平均 RPE ${averageReportRpe(report).toFixed(1)}，掉组 ${countDroppedSets(report)} 次。`;
   const parsedMealLog = nutritionSummary?.mealLog ?? normalizedMealLog;
   const effectivePostWorkout = parsedMealLog ? resolvePostWorkoutEntry(parsedMealLog) : undefined;
-  const mealBreakdownLine =
+  const mealBreakdownLines =
     nutritionSummary && parsedMealLog
       ? [
-          `Breakfast ${parsedMealLog.breakfast.nutritionEstimate?.calories ?? 0} kcal (P ${parsedMealLog.breakfast.nutritionEstimate?.proteinG ?? 0} / C ${parsedMealLog.breakfast.nutritionEstimate?.carbsG ?? 0} / F ${parsedMealLog.breakfast.nutritionEstimate?.fatsG ?? 0})`,
-          `Lunch ${parsedMealLog.lunch.nutritionEstimate?.calories ?? 0} kcal (P ${parsedMealLog.lunch.nutritionEstimate?.proteinG ?? 0} / C ${parsedMealLog.lunch.nutritionEstimate?.carbsG ?? 0} / F ${parsedMealLog.lunch.nutritionEstimate?.fatsG ?? 0})`,
-          `Dinner ${parsedMealLog.dinner.nutritionEstimate?.calories ?? 0} kcal (P ${parsedMealLog.dinner.nutritionEstimate?.proteinG ?? 0} / C ${parsedMealLog.dinner.nutritionEstimate?.carbsG ?? 0} / F ${parsedMealLog.dinner.nutritionEstimate?.fatsG ?? 0})`,
-          `Pre-workout ${parsedMealLog.preWorkout.nutritionEstimate?.calories ?? 0} kcal (P ${parsedMealLog.preWorkout.nutritionEstimate?.proteinG ?? 0} / C ${parsedMealLog.preWorkout.nutritionEstimate?.carbsG ?? 0} / F ${parsedMealLog.preWorkout.nutritionEstimate?.fatsG ?? 0})`,
-          `Post-workout ${effectivePostWorkout?.nutritionEstimate?.calories ?? 0} kcal (P ${effectivePostWorkout?.nutritionEstimate?.proteinG ?? 0} / C ${effectivePostWorkout?.nutritionEstimate?.carbsG ?? 0} / F ${effectivePostWorkout?.nutritionEstimate?.fatsG ?? 0})`,
-        ].join("; ")
-      : "Nutrition is pending AI computation.";
+          buildMealNutritionLine("早餐", parsedMealLog.breakfast.nutritionEstimate),
+          buildMealNutritionLine("午餐", parsedMealLog.lunch.nutritionEstimate),
+          buildMealNutritionLine("晚餐", parsedMealLog.dinner.nutritionEstimate),
+          buildMealNutritionLine("练前", parsedMealLog.preWorkout.nutritionEstimate),
+          buildMealNutritionLine("练后", effectivePostWorkout?.nutritionEstimate),
+        ]
+      : ["营养还在计算中，暂不展示数值拆解。"];
   const dataCheckLines = nutritionSummary
     ? [
-        `- Intake: ${nutritionSummary.nutritionTotals.calories} kcal / ${nutritionSummary.nutritionTotals.proteinG} g / ${nutritionSummary.nutritionTotals.carbsG} g / ${nutritionSummary.nutritionTotals.fatsG} g`,
-        `- Gap: ${buildGapText(nutritionSummary.nutritionTotals.calories, targetKcal, "calories")}; ${buildGapText(nutritionSummary.nutritionTotals.proteinG, targetMacros.proteinG, "protein")}; ${buildGapText(nutritionSummary.nutritionTotals.carbsG, targetMacros.carbsG, "carbs")}; ${buildGapText(nutritionSummary.nutritionTotals.fatsG, targetMacros.fatsG, "fats")}`,
-        `- Meal breakdown: ${mealBreakdownLine}`,
+        `- 估算摄入：${nutritionSummary.nutritionTotals.calories} kcal / 蛋白质 ${nutritionSummary.nutritionTotals.proteinG} g / 碳水 ${nutritionSummary.nutritionTotals.carbsG} g / 脂肪 ${nutritionSummary.nutritionTotals.fatsG} g`,
+        `- 缺口分析：${buildGapAnalysisLine(nutritionSummary.nutritionGap)}`,
+        `- 每餐拆解：${mealBreakdownLines.join("；")}`,
       ]
-    : [`- Nutrition status: pending`, `- Note: ${nutritionPendingMessage}`, `- Meal breakdown: ${mealBreakdownLine}`];
+    : [
+        "- 估算摄入：营养数据仍在计算中",
+        `- 缺口分析：${nutritionPendingMessage}`,
+        `- 每餐拆解：${mealBreakdownLines.join("；")}`,
+      ];
 
   const actions = buildStrictActionItems({
     report,
@@ -668,20 +771,20 @@ export function buildStrictDailyReviewMarkdown(params: {
   });
 
   return [
-    "1. Data Check",
+    "1. 📊 数据核算",
     "",
     ...dataCheckLines,
     "",
-    "2. Training Review",
+    "2. 🏋️ 训练评估",
     "",
-    `- Overload status: ${overloadStatus}`,
-    `- Comment: ${trainingComment}`,
+    `- 超负荷状态：${overloadStatus}`,
+    `- 简要评价：${trainingComment}`,
     "",
-    "3. Quality Rating",
+    "3. 🎯 质量评级",
     "",
-    `- ${ratingBadge} ${ratingReason}`,
+    `- ${rating.badge}（${rating.reason}）`,
     "",
-    "4. Action Items",
+    "4. ⚡ 行动建议",
     "",
     ...actions.map((item) => `- ${item}`),
   ].join("\n");

@@ -332,13 +332,13 @@ export async function generateGeminiDailyReview(params: {
     "- 仅限1-3条",
     "- 必须具体、直接、可执行",
     "Rating rules:",
-    "- 🟢 完美：营养目标总体偏差在±10%内，训练完成度高，无明显违规",
-    "- 🟡 警告：任一关键指标偏差10%–25%，或训练质量一般，或存在轻度违规",
-    "- 🔴 灾难：任一关键指标偏差超过25%，或出现饮酒、暴食、明显漏训、持续疲劳等重大问题",
+    "- 🟢 完美：整体执行稳定，营养大体在计划范围内，训练和恢复没有明显问题。",
+    "- 🟡 警告：存在1-2个需要纠偏的点，例如单项营养偏差较大、训练质量一般、餐次缺失或恢复一般。",
+    "- 🔴 灾难：只在出现多项明显偏离时使用，例如多餐缺失、训练明显崩盘、恢复很差并伴随大幅营养偏离。",
     "Do not add theory dump. Do not add narrative before section 1 or after section 4.",
     nutritionPending
       ? "If nutrition status is pending, section 1 must explicitly state nutrition is pending AI computation and must not include fabricated numeric totals or gaps."
-      : "Use provided numeric nutrition data for section 1 and keep numbers internally consistent.",
+      : "Use provided numeric nutrition data for section 1. Calories must stay consistent with listed P/C/F using the 4/4/9 rule.",
     "",
     `Plan label: ${params.planLabel}`,
     `Workout title: ${params.workoutTitle}`,

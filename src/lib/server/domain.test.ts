@@ -212,6 +212,72 @@ describe("daily review presentation", () => {
     expect(review).toContain("估算摄入");
     expect(review).toContain("缺口分析");
   });
+
+  it("does not escalate isolated nutrition drift to disaster", () => {
+    const report: SessionReport = {
+      id: "review-2",
+      reportVersion: 2,
+      date: "2026-03-14",
+      performedDay: "B",
+      exerciseResults: [
+        {
+          exerciseName: "杠铃卧推",
+          performed: true,
+          targetSets: 5,
+          targetReps: "10",
+          actualSets: 5,
+          actualReps: "10",
+          topSetWeightKg: 30,
+          rpe: 8.4,
+          droppedSets: false,
+        },
+      ],
+      bodyWeightKg: 61,
+      sleepHours: 7.5,
+      fatigue: 5,
+      mealLog: {
+        breakfast: { content: "鸡蛋 牛奶 面包", adherence: "on_plan" },
+        lunch: { content: "米饭 鸡胸", adherence: "on_plan" },
+        dinner: { content: "米饭 牛肉", adherence: "adjusted" },
+        preWorkout: { content: "香蕉", adherence: "on_plan" },
+        postWorkout: { content: "牛奶", adherence: "on_plan" },
+        postWorkoutSource: "dedicated",
+      },
+      nutritionTotals: {
+        calories: 1800,
+        proteinG: 100,
+        carbsG: 181,
+        fatsG: 54,
+      },
+      nutritionGap: {
+        calories: -242,
+        proteinG: -8,
+        carbsG: 1,
+        fatsG: 0,
+      },
+      nutritionComputation: {
+        status: "ready",
+        source: "hybrid",
+        computedAt: "2026-03-14T10:00:00.000Z",
+      },
+      completed: true,
+      nextDayDecision: {
+        trainingReadiness: "push",
+        nutritionFocus: "晚餐补一点主食就够。",
+        recoveryFocus: "保持睡眠。",
+        priorityNotes: ["别把轻微偏差放大"],
+      },
+      createdAt: "2026-03-14T10:00:00.000Z",
+    };
+
+    const review = buildStrictDailyReviewMarkdown({
+      report,
+      targetMacros: { proteinG: 108, carbsG: 180, fatsG: 54 },
+      nextDayDecision: report.nextDayDecision,
+    });
+
+    expect(review).not.toContain("🔴 灾难");
+  });
 });
 
 describe("chat context bundle", () => {

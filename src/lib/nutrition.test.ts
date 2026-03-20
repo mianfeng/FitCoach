@@ -11,7 +11,7 @@ describe("nutrition parser", () => {
     expect(result.parsedItems).toHaveLength(1);
     expect(result.parsedItems[0]?.name).toBe("全麦面包");
     expect(result.parsedItems[0]?.grams).toBe(50);
-    expect(result.nutritionEstimate.calories).toBe(123.5);
+    expect(result.nutritionEstimate.calories).toBe(124.9);
     expect(result.nutritionEstimate.proteinG).toBe(6);
     expect(result.analysisWarnings).toHaveLength(0);
   });
@@ -21,7 +21,7 @@ describe("nutrition parser", () => {
 
     expect(result.parsedItems).toHaveLength(1);
     expect(result.parsedItems[0]?.milliliters).toBe(300);
-    expect(result.nutritionEstimate.calories).toBe(120);
+    expect(result.nutritionEstimate.calories).toBe(118.5);
     expect(result.analysisWarnings).toHaveLength(0);
   });
 
@@ -30,8 +30,8 @@ describe("nutrition parser", () => {
 
     expect(result.parsedItems).toHaveLength(1);
     expect(result.parsedItems[0]?.name).toBe("香蕉");
-    expect(result.parsedItems[0]?.grams).toBe(120);
-    expect(result.nutritionEstimate.calories).toBe(106.8);
+    expect(result.parsedItems[0]?.grams).toBe(100);
+    expect(result.nutritionEstimate.calories).toBe(83.1);
     expect(result.analysisWarnings).toHaveLength(0);
   });
 
@@ -83,17 +83,17 @@ describe("nutrition parser", () => {
     const result = parseMealText("100g鱼肉，30g牛肉，350g米饭");
 
     expect(result.parsedItems.map((item) => item.name)).toEqual(["鱼肉", "牛肉", "米饭"]);
-    expect(result.nutritionEstimate.calories).toBe(594);
-    expect(result.nutritionEstimate.proteinG).toBe(39.2);
+    expect(result.nutritionEstimate.calories).toBe(564.8);
+    expect(result.nutritionEstimate.proteinG).toBe(37.1);
     expect(result.nutritionEstimate.carbsG).toBe(90.6);
-    expect(result.nutritionEstimate.fatsG).toBe(8.1);
+    expect(result.nutritionEstimate.fatsG).toBe(6);
   });
 
   it("does not double count combo defaults when explicit components are present", () => {
     const result = parseMealText("鸡排饭，100g鸡排，250g米饭");
 
     expect(result.parsedItems.map((item) => item.name)).toEqual(["鸡排", "米饭"]);
-    expect(result.nutritionEstimate.calories).toBe(540);
+    expect(result.nutritionEstimate.calories).toBe(537.4);
     expect(result.nutritionEstimate.proteinG).toBe(24.5);
     expect(result.nutritionEstimate.carbsG).toBe(78.8);
     expect(result.nutritionEstimate.fatsG).toBe(13.8);
@@ -104,7 +104,7 @@ describe("nutrition parser", () => {
     const result = parseMealText("烤鱼饭");
 
     expect(result.parsedItems.map((item) => item.name)).toEqual(["鱼肉", "米饭", "烹调保留油"]);
-    expect(result.nutritionEstimate.calories).toBe(526.2);
+    expect(result.nutritionEstimate.calories).toBe(523.4);
     expect(result.nutritionEstimate.proteinG).toBe(39.5);
     expect(result.nutritionEstimate.carbsG).toBe(64.8);
     expect(result.nutritionEstimate.fatsG).toBe(11.8);
@@ -115,17 +115,17 @@ describe("nutrition parser", () => {
     const result = parseMealText("辣椒炒肉");
 
     expect(result.parsedItems.map((item) => item.name)).toEqual(["猪肉", "辣椒", "烹调保留油"]);
-    expect(result.nutritionEstimate.calories).toBe(358.7);
+    expect(result.nutritionEstimate.calories).toBe(325.8);
     expect(result.nutritionEstimate.proteinG).toBe(27.6);
     expect(result.nutritionEstimate.carbsG).toBe(4.8);
-    expect(result.nutritionEstimate.fatsG).toBe(26.2);
+    expect(result.nutritionEstimate.fatsG).toBe(21.8);
   });
 
   it("parses chicken-leg rice components and avoids unknown inflation", () => {
     const result = parseMealText("鸡腿饭，270g米饭，去皮鸡腿一只，一块豆干，一颗卤蛋");
 
     expect(result.parsedItems.map((item) => item.name)).toEqual(["米饭", "去皮鸡腿", "豆干", "卤蛋", "烹调保留油"]);
-    expect(result.nutritionEstimate.calories).toBe(764.9);
+    expect(result.nutritionEstimate.calories).toBe(800.8);
     expect(result.unknownTokens).toHaveLength(0);
     expect(result.analysisWarnings.some((warning) => warning.includes("套餐默认烹调方式"))).toBe(true);
   });
@@ -137,11 +137,11 @@ describe("nutrition parser", () => {
     });
 
     expect(result.parsedItems.map((item) => item.name)).toEqual(["米饭", "猪肉", "辣椒", "烹调保留油"]);
-    expect(result.parsedItems.at(-1)?.fatsG).toBe(6);
-    expect(result.nutritionEstimate.calories).toBe(529);
+    expect(result.parsedItems.at(-1)?.fatsG).toBe(8);
+    expect(result.nutritionEstimate.calories).toBe(491.2);
     expect(result.nutritionEstimate.proteinG).toBe(28.4);
     expect(result.nutritionEstimate.carbsG).toBe(56.6);
-    expect(result.nutritionEstimate.fatsG).toBe(21.8);
+    expect(result.nutritionEstimate.fatsG).toBe(16.8);
   });
 
   it("recognizes grouped vegetables and milk powder without splitting parenthetical notes", () => {
@@ -158,7 +158,7 @@ describe("nutrition parser", () => {
     const result = parseMealText("辣椒炒肉饭，已清水去油，其中米饭220g，瘦肉120g");
 
     expect(result.parsedItems.map((item) => item.name)).toEqual(["米饭", "猪肉", "辣椒", "烹调保留油"]);
-    expect(result.parsedItems.at(-1)?.fatsG).toBe(4);
+    expect(result.parsedItems.at(-1)?.fatsG).toBe(6);
     expect(result.analysisWarnings.some((warning) => warning.includes("主食或蛋白重量"))).toBe(false);
     expect(result.analysisWarnings.some((warning) => warning.includes("辣椒80g"))).toBe(true);
     expect(result.analysisWarnings.some((warning) => warning.includes("50%"))).toBe(true);
@@ -205,7 +205,7 @@ describe("nutrition parser", () => {
 
     expect(result.parsedItems).toHaveLength(1);
     expect(result.parsedItems[0]?.quantitySource).toBe("ai");
-    expect(result.nutritionEstimate.calories).toBe(520);
+    expect(result.nutritionEstimate.calories).toBe(506);
     expect(result.analysisWarnings).toHaveLength(0);
     expect(result.unknownTokens).toHaveLength(0);
   });
@@ -238,5 +238,27 @@ describe("nutrition summarizer", () => {
     expect(result.nutritionTotals.calories).toBeGreaterThan(1200);
     expect(result.nutritionGap.calories).toBeLessThan(0);
     expect(result.nutritionWarnings).toHaveLength(0);
+  });
+
+  it("keeps total calories aligned with macro totals", () => {
+    const mealLog = createEmptyMealLog();
+    mealLog.breakfast.content = "100g鱼肉，30g牛肉，350g米饭";
+
+    const result = summarizeReportNutrition(mealLog, {
+      calories: 2000,
+      proteinG: 140,
+      carbsG: 220,
+      fatsG: 60,
+    });
+
+    expect(result.nutritionTotals.calories).toBe(564.8);
+    expect(result.nutritionTotals.calories).toBe(
+      Math.round(
+        (result.nutritionTotals.proteinG * 4 +
+          result.nutritionTotals.carbsG * 4 +
+          result.nutritionTotals.fatsG * 9) *
+          10,
+      ) / 10,
+    );
   });
 });

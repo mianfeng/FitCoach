@@ -551,6 +551,23 @@ function roundNutrition(value: number) {
   return Math.round(value * 10) / 10;
 }
 
+function calculateCaloriesFromMacros(proteinG: number, carbsG: number, fatsG: number) {
+  return roundNutrition(proteinG * 4 + carbsG * 4 + fatsG * 9);
+}
+
+function normalizeNutritionEstimate(input: NutritionEstimate): NutritionEstimate {
+  const proteinG = roundNutrition(input.proteinG);
+  const carbsG = roundNutrition(input.carbsG);
+  const fatsG = roundNutrition(input.fatsG);
+
+  return {
+    calories: calculateCaloriesFromMacros(proteinG, carbsG, fatsG),
+    proteinG,
+    carbsG,
+    fatsG,
+  };
+}
+
 function emptyNutrition(): NutritionEstimate {
   return {
     calories: 0,
@@ -561,12 +578,12 @@ function emptyNutrition(): NutritionEstimate {
 }
 
 function addNutrition(base: NutritionEstimate, extra: NutritionEstimate): NutritionEstimate {
-  return {
-    calories: roundNutrition(base.calories + extra.calories),
-    proteinG: roundNutrition(base.proteinG + extra.proteinG),
-    carbsG: roundNutrition(base.carbsG + extra.carbsG),
-    fatsG: roundNutrition(base.fatsG + extra.fatsG),
-  };
+  return normalizeNutritionEstimate({
+    calories: base.calories + extra.calories,
+    proteinG: base.proteinG + extra.proteinG,
+    carbsG: base.carbsG + extra.carbsG,
+    fatsG: base.fatsG + extra.fatsG,
+  });
 }
 
 function extractChineseNumber(value: string) {
@@ -847,12 +864,12 @@ function calculateNutrition(item: FoodLibraryItem, quantity: QuantityInfo): Nutr
     }
   }
 
-  return {
-    calories: roundNutrition(item.calories * factor),
-    proteinG: roundNutrition(item.proteinG * factor),
-    carbsG: roundNutrition(item.carbsG * factor),
-    fatsG: roundNutrition(item.fatsG * factor),
-  };
+  return normalizeNutritionEstimate({
+    calories: item.calories * factor,
+    proteinG: item.proteinG * factor,
+    carbsG: item.carbsG * factor,
+    fatsG: item.fatsG * factor,
+  });
 }
 
 function createParsedItem(item: FoodLibraryItem, sourceText: string, quantity: QuantityInfo, note?: string): ParsedMealItem {
@@ -875,6 +892,13 @@ function createParsedItem(item: FoodLibraryItem, sourceText: string, quantity: Q
 }
 
 function createRuleOilParsedItem(sourceText: string, cookingMethod: MealCookingMethod, retainedOilG: number, rinseOil: boolean): ParsedMealItem {
+  const nutrition = normalizeNutritionEstimate({
+    calories: (884 * retainedOilG) / 100,
+    proteinG: 0,
+    carbsG: 0,
+    fatsG: retainedOilG,
+  });
+
   return {
     name: "烹调保留油",
     sourceText,
@@ -883,10 +907,10 @@ function createRuleOilParsedItem(sourceText: string, cookingMethod: MealCookingM
     grams: retainedOilG,
     quantitySource: "rule",
     category: "fat",
-    calories: roundNutrition((884 * retainedOilG) / 100),
-    proteinG: 0,
-    carbsG: 0,
-    fatsG: roundNutrition(retainedOilG),
+    calories: nutrition.calories,
+    proteinG: nutrition.proteinG,
+    carbsG: nutrition.carbsG,
+    fatsG: nutrition.fatsG,
     note: rinseOil ? `${cookingOilRules[cookingMethod].label}，按涮油折算` : cookingOilRules[cookingMethod].label,
   };
 }
@@ -1001,6 +1025,7 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
     if (!food) {
       const inferred = inferredTokenMap.get(normalizeLookupToken(token));
       if (inferred) {
+        const nutrition = normalizeNutritionEstimate(inferred.nutrition);
         parsedItems.push({
           name: inferred.name?.trim() || token,
           sourceText: token,
@@ -1008,10 +1033,10 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
           unit: "serving",
           quantitySource: "ai",
           category: "ai_inferred",
-          calories: roundNutrition(inferred.nutrition.calories),
-          proteinG: roundNutrition(inferred.nutrition.proteinG),
-          carbsG: roundNutrition(inferred.nutrition.carbsG),
-          fatsG: roundNutrition(inferred.nutrition.fatsG),
+          calories: nutrition.calories,
+          proteinG: nutrition.proteinG,
+          carbsG: nutrition.carbsG,
+          fatsG: nutrition.fatsG,
           note: "AI估算",
         });
         continue;

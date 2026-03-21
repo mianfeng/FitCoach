@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { addDays } from "date-fns";
+
 import { defaultPlan, defaultProfile, defaultTemplates } from "@/lib/seed";
 import {
   buildChatContextBundle,
@@ -77,6 +79,32 @@ describe("daily brief", () => {
     expect(result.brief.isRestDay).toBe(false);
     expect(result.brief.workoutPrescription.exercises.length).toBeGreaterThan(0);
     expect(result.brief.mealPrescription.macros.carbsG).toBeGreaterThan(0);
+  });
+
+  it("uses 253 meal split on rest days", () => {
+    const plan = {
+      ...defaultPlan,
+      startDate: "2026-03-12",
+      calendarEntries: [],
+    };
+    const result = buildDailyBrief(
+      {
+        date: addDays(new Date("2026-03-12"), 3).toISOString().slice(0, 10),
+        userQuestion: "休息日怎么吃",
+      },
+      defaultProfile,
+      plan,
+      defaultTemplates,
+      [],
+      null,
+    );
+
+    expect(result.brief.isRestDay).toBe(true);
+    expect(result.brief.mealPrescription.meals.map((meal) => `${meal.label}:${meal.sharePercent}`)).toEqual([
+      "早餐:20",
+      "午餐:50",
+      "晚餐:30",
+    ]);
   });
 });
 

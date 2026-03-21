@@ -16,6 +16,28 @@ const nonDeloadRepStyles = ["5x10", "4x10", "4x8", "3x8", "5x5", "3x5", "3x3", "
 const nonDeloadLabels = ["初期", "初期", "中期", "中期", "冲刺期", "冲刺期", "极限期", "极限期"];
 const cycleSlots: PlanCalendarSlot[] = ["A", "B", "C", "rest"];
 
+function buildMealBlocks(
+  mode: "training" | "rest",
+  examples: string[],
+  mealSplit: number[],
+): MealPrescription["meals"] {
+  if (mode === "rest") {
+    return [
+      { label: "早餐", sharePercent: 20, examples: examples.slice(0, 2) },
+      { label: "午餐", sharePercent: 50, examples: examples.slice(1, 3) },
+      { label: "晚餐", sharePercent: 30, examples: [examples[0], ...examples.slice(2, 4)].filter(Boolean) },
+    ];
+  }
+
+  const [breakfast, lunch, preworkout, postworkout] = mealSplit;
+  return [
+    { label: "早餐", sharePercent: breakfast, examples: examples.slice(0, 2) },
+    { label: "其他餐", sharePercent: lunch, examples: examples.slice(1, 3) },
+    { label: "练前餐", sharePercent: preworkout, examples: ["馒头", "面包", "香蕉", "快碳饮料"] },
+    { label: "练后餐", sharePercent: postworkout, examples: ["米饭", "瘦肉", "牛奶", "高碳主食"] },
+  ];
+}
+
 function buildSnapshotMealPrescription(input: PlanSetupInput, mode: "training" | "rest"): MealPrescription {
   const carbModifier = input.plan.manualOverrides?.carbModifierPerKg ?? 0;
   const carbsPerKg =
@@ -30,21 +52,19 @@ function buildSnapshotMealPrescription(input: PlanSetupInput, mode: "training" |
   };
 
   const examples = mode === "training" ? input.plan.mealStrategy.trainingExamples : input.plan.mealStrategy.restExamples;
-  const [breakfast, lunch, preworkout, postworkout] = input.plan.mealStrategy.mealSplit;
 
   return {
     dayType: mode,
     macros,
-    meals: [
-      { label: "早餐", sharePercent: breakfast, examples: examples.slice(0, 2) },
-      { label: "其他餐", sharePercent: lunch, examples: examples.slice(1, 3) },
-      { label: "练前餐", sharePercent: preworkout, examples: ["馒头", "面包", "香蕉", "快碳饮料"] },
-      { label: "练后餐", sharePercent: postworkout, examples: ["米饭", "瘦肉", "牛奶", "高碳主食"] },
-    ],
+    meals: buildMealBlocks(mode, examples, input.plan.mealStrategy.mealSplit),
     guidance: [
       mode === "training" ? "训练日碳水跟着训练走。" : "休息日保持蛋白稳定、碳水略低。",
       "晚饭后训练时，可把晚饭视为练前餐。",
-      input.plan.manualOverrides?.recoveryMode === "deload" ? "当前为恢复模式。" : "按正式计划稳定执行。",
+      input.plan.manualOverrides?.recoveryMode === "deload"
+        ? "当前为恢复模式。"
+        : mode === "training"
+          ? "按训练日 2242 分配稳定执行。"
+          : "按休息日 253 分配稳定执行。",
     ],
   };
 }

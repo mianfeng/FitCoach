@@ -196,6 +196,28 @@ function buildWorkoutExercise(
   } satisfies WorkoutPrescriptionExercise;
 }
 
+function buildMealBlocks(
+  mode: "training" | "rest",
+  examples: string[],
+  mealSplit: number[],
+): MealPrescription["meals"] {
+  if (mode === "rest") {
+    return [
+      { label: "早餐", sharePercent: 20, examples: examples.slice(0, 2) },
+      { label: "午餐", sharePercent: 50, examples: examples.slice(1, 3) },
+      { label: "晚餐", sharePercent: 30, examples: [examples[0], ...examples.slice(2, 4)].filter(Boolean) },
+    ];
+  }
+
+  const [breakfast, lunch, preworkout, postworkout] = mealSplit;
+  return [
+    { label: "早餐", sharePercent: breakfast, examples: examples.slice(0, 2) },
+    { label: "其他餐", sharePercent: lunch, examples: examples.slice(1, 3) },
+    { label: "练前餐", sharePercent: preworkout, examples: ["馒头", "面包", "香蕉", "快碳饮料"] },
+    { label: "练后餐", sharePercent: postworkout, examples: ["米饭", "瘦肉", "牛奶", "高碳主食"] },
+  ];
+}
+
 export function buildMealPrescription(
   profile: UserProfile,
   plan: LongTermPlan,
@@ -215,17 +237,11 @@ export function buildMealPrescription(
 
   const exampleSet =
     mode === "training" ? plan.mealStrategy.trainingExamples : plan.mealStrategy.restExamples;
-  const [breakfast, lunch, preworkout, postworkout] = plan.mealStrategy.mealSplit;
 
   return {
     dayType: mode,
     macros,
-    meals: [
-      { label: "早餐", sharePercent: breakfast, examples: exampleSet.slice(0, 2) },
-      { label: "其他餐", sharePercent: lunch, examples: exampleSet.slice(1, 3) },
-      { label: "练前餐", sharePercent: preworkout, examples: ["馒头", "面包", "香蕉", "快碳饮料"] },
-      { label: "练后餐", sharePercent: postworkout, examples: ["米饭", "瘦肉", "牛奶", "高碳主食"] },
-    ],
+    meals: buildMealBlocks(mode, exampleSet, plan.mealStrategy.mealSplit),
     guidance: [
       mode === "training"
         ? "训练日碳水跟着训练走，优先保证练前后窗口。"
@@ -233,7 +249,9 @@ export function buildMealPrescription(
       "若晚饭后训练，可把晚饭视为练前餐，夜宵视为练后餐。",
       plan.manualOverrides?.recoveryMode === "deload"
         ? "当前处于恢复模式，饮食不需要再额外压低。"
-        : "保持 2242 分配，避免随机加餐导致摄入漂移。",
+        : mode === "training"
+          ? "保持 2242 分配，避免随机加餐导致摄入漂移。"
+          : "保持 253 分配，避免把休息日吃成训练日节奏。",
     ],
   };
 }

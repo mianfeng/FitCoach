@@ -3,7 +3,7 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { buildEmptyDashboardSeed, buildDefaultPlanSetup } from "@/lib/seed";
-import { buildPlanSnapshots, normalizePlanSetupInput } from "@/lib/plan-generator";
+import { buildPlanSnapshots, mergePlanSnapshotsFromDate, normalizePlanSetupInput } from "@/lib/plan-generator";
 import { buildMealLogForSubmit, createEmptyMealLog, mealSlotOrder, normalizeStoredSessionReport } from "@/lib/session-report";
 import { buildSessionSummary } from "@/lib/server/domain";
 import { env, hasSupabaseConfig } from "@/lib/server/env";
@@ -23,7 +23,7 @@ import type {
   SessionReport,
   WorkoutTemplate,
 } from "@/lib/types";
-import { uid } from "@/lib/utils";
+import { isoToday, uid } from "@/lib/utils";
 
 type CoachStateRow = {
   id: string;
@@ -405,6 +405,7 @@ function createMockRepository(): Repository {
   return {
     async getDashboardSnapshot() {
       const store = await getMockStore();
+      const today = isoToday();
       const normalized = normalizePlanSetupInput({
         profile: store.profile,
         persona: store.persona,
@@ -417,6 +418,12 @@ function createMockRepository(): Repository {
       store.templates = normalized.templates;
       if (!store.planSnapshots.length) {
         store.planSnapshots = buildPlanSnapshots(normalized);
+      } else {
+        store.planSnapshots = mergePlanSnapshotsFromDate(
+          store.planSnapshots,
+          buildPlanSnapshots(normalized),
+          today,
+        );
       }
       return {
         profile: normalized.profile,
@@ -447,6 +454,7 @@ function createMockRepository(): Repository {
     },
     async savePlanSetup(input) {
       const store = await getMockStore();
+      const today = isoToday();
       const normalized = normalizePlanSetupInput(input);
       const finalized = {
         ...normalized,
@@ -463,7 +471,11 @@ function createMockRepository(): Repository {
       store.persona = finalized.persona;
       store.plan = finalized.plan;
       store.templates = finalized.templates;
-      store.planSnapshots = buildPlanSnapshots(finalized);
+      store.planSnapshots = mergePlanSnapshotsFromDate(
+        store.planSnapshots,
+        buildPlanSnapshots(finalized),
+        today,
+      );
       return finalized;
     },
     async listNutritionDishes() {
@@ -726,6 +738,7 @@ function createSupabaseRepository(): Repository {
       });
     },
     async savePlanSetup(input) {
+      const today = isoToday();
       const normalized = normalizePlanSetupInput(input);
       const nextPlan = {
         ...normalized.plan,
@@ -749,7 +762,16 @@ function createSupabaseRepository(): Repository {
       if (error) {
         throw error;
       }
-      const snapshots = buildPlanSnapshots(finalized);
+      const { data: existingSnapshotRows } = await supabase
+        .from("plan_snapshots")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .returns<SnapshotRow[]>();
+      const snapshots = mergePlanSnapshotsFromDate(
+        (existingSnapshotRows ?? []).map((row) => row.snapshot),
+        buildPlanSnapshots(finalized),
+        today,
+      );
       await this.replacePlanSnapshots(snapshots);
       return finalized;
     },

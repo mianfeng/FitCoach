@@ -106,6 +106,58 @@ describe("daily brief", () => {
       "晚餐:30",
     ]);
   });
+
+  it("does not reuse a brief from an older plan revision", () => {
+    const plan = {
+      ...defaultPlan,
+      startDate: "2026-03-12",
+      planRevisionId: "planrev-new",
+      calendarEntries: [],
+    };
+    const existing = {
+      id: "brief-old",
+      date: "2026-03-12",
+      scheduledDay: "A" as const,
+      calendarLabel: "W1D1A",
+      calendarSlot: "A" as const,
+      isRestDay: false,
+      workoutPrescription: {
+        dayCode: "A" as const,
+        title: "旧计划",
+        objective: "旧目标",
+        warmup: [],
+        exercises: [],
+        caution: [],
+      },
+      mealPrescription: {
+        dayType: "training" as const,
+        macros: { proteinG: 100, carbsG: 200, fatsG: 50 },
+        meals: [],
+        guidance: [],
+      },
+      reasoningSummary: [],
+      sourceSnapshotId: "snapshot-old",
+      userQuestion: "今天怎么练",
+      createdAt: "2026-03-12T10:00:00.000Z",
+      planRevisionId: "planrev-old",
+    };
+
+    const result = buildDailyBrief(
+      {
+        date: "2026-03-12",
+        userQuestion: "今天怎么练",
+      },
+      defaultProfile,
+      plan,
+      defaultTemplates,
+      [],
+      existing,
+    );
+
+    expect(result.reused).toBe(false);
+    expect(result.brief.planRevisionId).toBe("planrev-new");
+    expect(result.brief.workoutPrescription.title).not.toBe("旧计划");
+  });
 });
 
 describe("adjustment proposal", () => {

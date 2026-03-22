@@ -183,6 +183,7 @@ export interface DailyBrief {
   workoutPrescription: WorkoutPrescription;
   mealPrescription: MealPrescription;
   reasoningSummary: string[];
+  planRevisionId?: string;
   sourceSnapshotId: string;
   userQuestion: string;
   optionalConstraints?: string;

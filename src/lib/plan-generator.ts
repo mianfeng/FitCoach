@@ -339,3 +339,18 @@ export function buildPlanSnapshots(input: PlanSetupInput): PlanSnapshot[] {
     } satisfies PlanSnapshot;
   });
 }
+
+export function mergePlanSnapshotsFromDate(
+  existingSnapshots: PlanSnapshot[],
+  nextSnapshots: PlanSnapshot[],
+  effectiveDate: string,
+) {
+  if (!existingSnapshots.length) {
+    return nextSnapshots;
+  }
+
+  const preservedHistory = existingSnapshots.filter((snapshot) => snapshot.date < effectiveDate);
+  const updatedUpcoming = nextSnapshots.filter((snapshot) => snapshot.date >= effectiveDate);
+
+  return [...preservedHistory, ...updatedUpcoming].sort((left, right) => left.date.localeCompare(right.date));
+}

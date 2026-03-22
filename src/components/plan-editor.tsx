@@ -16,7 +16,7 @@ interface PlanEditorProps {
 }
 
 const durationPresets = [4, 8, 12];
-const DRAFT_STORAGE_KEY = "fitcoach:plan-draft:v1";
+const DRAFT_STORAGE_KEY = "fitcoach:plan-draft:v2";
 
 function groupByWeek(calendarEntries: PlanCalendarEntry[]) {
   const buckets = new Map<number, PlanCalendarEntry[]>();

@@ -270,7 +270,8 @@ export function buildDailyBrief(
   if (
     existingBrief &&
     existingBrief.calendarSlot === calendarEntry.slot &&
-    existingBrief.calendarLabel === calendarEntry.label
+    existingBrief.calendarLabel === calendarEntry.label &&
+    existingBrief.planRevisionId === plan.planRevisionId
   ) {
     return {
       brief: {
@@ -330,6 +331,7 @@ export function buildDailyBrief(
         `本周强度采用 ${Math.round(weeklyPhase.intensity * 100)}% 区间，组次风格为 ${weeklyPhase.repStyle}。`,
         isRestDay ? "休息日只显示恢复与饮食，不生成训练动作。" : "训练日动作和饮食都按该日期槽位生成。",
       ],
+      planRevisionId: plan.planRevisionId,
       sourceSnapshotId: uid("snapshot"),
       userQuestion: request.userQuestion,
       optionalConstraints: request.optionalConstraints,
@@ -350,6 +352,7 @@ export function buildDailyBriefFromSnapshot(snapshot: PlanSnapshot): DailyBrief 
     workoutPrescription: snapshot.workoutPrescription,
     mealPrescription: snapshot.mealPrescription,
     reasoningSummary: ["由历史计划快照直接回放，不重新生成当日处方。"],
+    planRevisionId: snapshot.planRevisionId,
     sourceSnapshotId: snapshot.id,
     userQuestion: "",
     createdAt: new Date().toISOString(),

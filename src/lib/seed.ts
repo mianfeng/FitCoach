@@ -10,6 +10,7 @@ import type {
   WorkoutTemplate,
 } from "@/lib/types";
 import { regenerateLinearPlan } from "@/lib/plan-generator";
+import { applyCurrentTemplateLayout } from "@/lib/template-layout";
 import { isoToday, uid } from "@/lib/utils";
 
 export const defaultPersona: CoachPersona = {
@@ -95,7 +96,7 @@ export const defaultPlan: LongTermPlan = {
   },
 };
 
-export const defaultTemplates: WorkoutTemplate[] = [
+const defaultTemplateBlueprints: WorkoutTemplate[] = [
   {
     id: "template-a",
     dayCode: "A",
@@ -380,6 +381,8 @@ export const defaultTemplates: WorkoutTemplate[] = [
     ],
   },
 ];
+
+export const defaultTemplates: WorkoutTemplate[] = applyCurrentTemplateLayout(defaultTemplateBlueprints);
 
 export function buildDefaultPlanSetup(): PlanSetupInput {
   return regenerateLinearPlan({

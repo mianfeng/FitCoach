@@ -10,6 +10,7 @@ import type {
   WeeklyPhase,
   WorkoutTemplate,
 } from "@/lib/types";
+import { applyCurrentTemplateLayout } from "@/lib/template-layout";
 import { clamp, roundToIncrement, uid } from "@/lib/utils";
 
 const nonDeloadRepStyles = ["5x10", "4x10", "4x8", "3x8", "5x5", "3x5", "3x3", "3x3"];
@@ -249,7 +250,15 @@ export function normalizePlanSetupInput(input: PlanSetupInput): PlanSetupInput {
 
   return {
     ...nextInput,
-    templates: nextInput.templates.map((template) => ({
+    templates: applyCurrentTemplateLayout(
+      nextInput.templates.map((template) => ({
+        ...template,
+        exercises: template.exercises.map((exercise) => ({
+          ...exercise,
+          oneRepMaxKg: inferOneRepMaxKg(exercise, nextInput.profile.oneRepMaxes),
+        })),
+      })),
+    ).map((template) => ({
       ...template,
       exercises: template.exercises.map((exercise) => ({
         ...exercise,

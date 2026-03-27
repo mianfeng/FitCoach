@@ -183,6 +183,18 @@ const foodLibrary: FoodLibraryItem[] = [
     defaultServing: { amount: 250, unit: "g", grams: 250 },
   },
   {
+    id: "potato",
+    name: "土豆",
+    aliases: ["土豆", "土豆丝"],
+    category: "carb",
+    basis: "per100g",
+    calories: 87,
+    proteinG: 1.7,
+    carbsG: 20,
+    fatsG: 0.1,
+    defaultServing: { amount: 1, unit: "piece", grams: 200 },
+  },
+  {
     id: "bread",
     name: "面包",
     aliases: ["面包", "吐司", "白面包"],
@@ -369,6 +381,7 @@ const foodLibrary: FoodLibraryItem[] = [
     fatsG: 8,
     defaultServing: { amount: 1, unit: "piece", grams: 30 },
   },
+
   {
     id: "marinated_egg",
     name: "卤蛋",

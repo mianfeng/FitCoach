@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseMealText, summarizeReportNutrition } from "@/lib/nutrition";
+import { getFoodLibraryConsistencyIssues, parseMealText, summarizeReportNutrition } from "@/lib/nutrition";
 import { createEmptyMealLog } from "@/lib/session-report";
 import type { NutritionDish } from "@/lib/types";
 
@@ -83,10 +83,29 @@ describe("nutrition parser", () => {
     const result = parseMealText("100g鱼肉，30g牛肉，350g米饭");
 
     expect(result.parsedItems.map((item) => item.name)).toEqual(["鱼肉", "牛肉", "米饭"]);
-    expect(result.nutritionEstimate.calories).toBe(564.8);
-    expect(result.nutritionEstimate.proteinG).toBe(37.1);
+    expect(result.nutritionEstimate.calories).toBe(590.9);
+    expect(result.nutritionEstimate.proteinG).toBe(38.9);
     expect(result.nutritionEstimate.carbsG).toBe(90.6);
-    expect(result.nutritionEstimate.fatsG).toBe(6);
+    expect(result.nutritionEstimate.fatsG).toBe(8.1);
+  });
+
+  it("supports space-separated food items in one text block", () => {
+    const result = parseMealText("100g鱼肉 30g牛肉 350g米饭");
+
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["鱼肉", "牛肉", "米饭"]);
+    expect(result.nutritionEstimate.calories).toBe(590.9);
+    expect(result.nutritionEstimate.proteinG).toBe(38.9);
+    expect(result.nutritionEstimate.carbsG).toBe(90.6);
+    expect(result.nutritionEstimate.fatsG).toBe(8.1);
+  });
+
+  it("merges spaced quantity fragments before parsing", () => {
+    const result = parseMealText("100 g 鱼肉 350 g 米饭");
+
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["鱼肉", "米饭"]);
+    expect(result.parsedItems[0]?.grams).toBe(100);
+    expect(result.parsedItems[1]?.grams).toBe(350);
+    expect(result.nutritionEstimate.calories).toBe(532.7);
   });
 
   it("does not double count combo defaults when explicit components are present", () => {
@@ -142,6 +161,19 @@ describe("nutrition parser", () => {
     expect(result.nutritionEstimate.proteinG).toBe(28.4);
     expect(result.nutritionEstimate.carbsG).toBe(56.6);
     expect(result.nutritionEstimate.fatsG).toBe(16.8);
+  });
+
+  it("applies retained oil for manually selected cooking methods without requiring a combo match", () => {
+    const result = parseMealText("200g米饭，100g牛肉", {
+      cookingMethod: "stir_fry_normal",
+    });
+
+    expect(result.parsedItems.map((item) => item.name)).toEqual(["米饭", "牛肉", "烹调保留油"]);
+    expect(result.parsedItems.at(-1)?.fatsG).toBe(12);
+    expect(result.nutritionEstimate.calories).toBe(535.4);
+    expect(result.nutritionEstimate.proteinG).toBe(31.2);
+    expect(result.nutritionEstimate.carbsG).toBe(51.8);
+    expect(result.nutritionEstimate.fatsG).toBe(22.6);
   });
 
   it("recognizes grouped vegetables and milk powder without splitting parenthetical notes", () => {
@@ -251,7 +283,7 @@ describe("nutrition summarizer", () => {
       fatsG: 60,
     });
 
-    expect(result.nutritionTotals.calories).toBe(564.8);
+    expect(result.nutritionTotals.calories).toBe(590.9);
     expect(result.nutritionTotals.calories).toBe(
       Math.round(
         (result.nutritionTotals.proteinG * 4 +
@@ -260,5 +292,11 @@ describe("nutrition summarizer", () => {
           10,
       ) / 10,
     );
+  });
+});
+
+describe("nutrition library", () => {
+  it("keeps food-library calories aligned with macro-derived calories", () => {
+    expect(getFoodLibraryConsistencyIssues()).toEqual([]);
   });
 });

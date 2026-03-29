@@ -881,7 +881,7 @@ export function HomeDashboard({
                       }
                       disabled={isMirroredPostWorkout}
                       className="mt-3 w-full rounded-[14px] border border-black/10 bg-white px-3 py-2.5 text-sm leading-6 outline-none disabled:opacity-50"
-                      placeholder={`输入${field.label}，例如：鸡排饭 100g鸡排 250g米饭 1勺蛋白粉30g`}
+                      placeholder={`输入${field.label}，例如：鸡排饭 100g鸡排 250g米饭 1勺蛋白粉30g（空格或逗号分隔都可）`}
                     />
 
                     <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">

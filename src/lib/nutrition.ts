@@ -118,6 +118,7 @@ const unitMap: Record<string, FoodPortionUnit> = {
   杯: "cup",
   碗: "bowl",
   份: "serving",
+  勺: "serving",
 };
 
 const cookingOilRules: Record<MealCookingMethod, CookingOilRule> = {
@@ -224,9 +225,9 @@ const foodLibrary: FoodLibraryItem[] = [
     aliases: ["面条", "挂面", "汤面", "拌面"],
     category: "carb",
     basis: "per100g",
-    calories: 137,
+    calories: 137.3,
     proteinG: 4.5,
-    carbsG: 72,
+    carbsG: 26,
     fatsG: 1.7,
     defaultServing: { amount: 250, unit: "g", grams: 250 },
   },
@@ -236,7 +237,7 @@ const foodLibrary: FoodLibraryItem[] = [
     aliases: ["燕麦", "燕麦片"],
     category: "carb",
     basis: "per100g",
-    calories: 389,
+    calories: 394.9,
     proteinG: 16.9,
     carbsG: 66.3,
     fatsG: 6.9,
@@ -248,7 +249,7 @@ const foodLibrary: FoodLibraryItem[] = [
     aliases: ["香蕉", "一根香蕉"],
     category: "fruit",
     basis: "per100g",
-    calories: 89,
+    calories: 83.1,
     proteinG: 1.1,
     carbsG: 19,
     fatsG: 0.3,
@@ -272,7 +273,7 @@ const foodLibrary: FoodLibraryItem[] = [
     aliases: ["鸡胸", "鸡胸肉"],
     category: "protein",
     basis: "per100g",
-    calories: 165,
+    calories: 156.4,
     proteinG: 31,
     carbsG: 0,
     fatsG: 3.6,
@@ -285,7 +286,7 @@ const foodLibrary: FoodLibraryItem[] = [
     aliases: ["鸡排", "炸鸡排", "煎鸡排"],
     category: "protein",
     basis: "per100g",
-    calories: 250,
+    calories: 245,
     proteinG: 18,
     carbsG: 14,
     fatsG: 13,
@@ -310,10 +311,10 @@ const foodLibrary: FoodLibraryItem[] = [
     aliases: ["牛肉", "瘦牛肉"],
     category: "protein",
     basis: "per100g",
-    calories: 200,
-    proteinG: 20,
+    calories: 194,
+    proteinG: 26,
     carbsG: 0,
-    fatsG: 3,
+    fatsG: 10,
     supportsCookingOilRule: true,
     defaultServing: { amount: 100, unit: "g", grams: 100 },
   },
@@ -323,10 +324,10 @@ const foodLibrary: FoodLibraryItem[] = [
     aliases: ["猪肉", "瘦猪肉", "里脊"],
     category: "protein",
     basis: "per100g",
-    calories: 220,
+    calories: 160,
     proteinG: 22,
     carbsG: 0,
-    fatsG:8,
+    fatsG: 8,
     supportsCookingOilRule: true,
     defaultServing: { amount: 120, unit: "g", grams: 120 },
   },
@@ -400,7 +401,7 @@ const foodLibrary: FoodLibraryItem[] = [
     aliases: ["牛奶", "纯牛奶"],
     category: "drink",
     basis: "per100ml",
-    calories: 54,
+    calories: 59,
     proteinG: 3,
     carbsG: 5,
     fatsG: 3,
@@ -412,10 +413,10 @@ const foodLibrary: FoodLibraryItem[] = [
     aliases: ["奶粉", "全脂奶粉", "脱脂奶粉"],
     category: "drink",
     basis: "per100g",
-    calories: 496,
-    proteinG: 42,
-    carbsG: 13,
-    fatsG: 47,
+    calories: 495,
+    proteinG: 24,
+    carbsG: 38,
+    fatsG: 27,
     defaultServing: { amount: 25, unit: "g", grams: 25 },
   },
   {
@@ -436,7 +437,7 @@ const foodLibrary: FoodLibraryItem[] = [
     aliases: ["食用油", "烹调油", "橄榄油", "菜籽油"],
     category: "fat",
     basis: "per100g",
-    calories: 884,
+    calories: 900,
     proteinG: 0,
     carbsG: 0,
     fatsG: 100,
@@ -448,10 +449,10 @@ const foodLibrary: FoodLibraryItem[] = [
     aliases: ["蛋白粉", "乳清蛋白", "乳清蛋白粉"],
     category: "supplement",
     basis: "per100g",
-    calories: 400,
-    proteinG: 70,
-    carbsG: 10,
-    fatsG: 5,
+    calories: 398,
+    proteinG: 78,
+    carbsG: 8,
+    fatsG: 6,
     defaultServing: { amount: 30, unit: "g", grams: 30 },
   },
   {
@@ -607,8 +608,56 @@ function normalizeLookupToken(input: string) {
   return stripParentheticalText(input).replace(/\s+/g, "").toLowerCase();
 }
 
-function splitMealTokens(text: string) {
+function isQuantitySegment(segment: string) {
+  return /^(\d+(?:\.\d+)?|[半一二两三四五六七八九十])$/i.test(segment);
+}
+
+function isUnitSegment(segment: string) {
+  return /^(kg|g|ml|l|片|个|只|块|颗|根|杯|碗|份|勺)$/i.test(segment);
+}
+
+function endsWithQuantityAndUnit(segment: string) {
+  return /(\d+(?:\.\d+)?|[半一二两三四五六七八九十])(kg|g|ml|l|片|个|只|块|颗|根|杯|碗|份|勺)$/i.test(segment);
+}
+
+function splitTokenByWhitespace(token: string) {
+  const segments = token.trim().split(/\s+/).filter(Boolean);
+  if (segments.length <= 1) {
+    return token.trim() ? [token.trim()] : [];
+  }
+
   const tokens: string[] = [];
+  let current = "";
+
+  for (const segment of segments) {
+    if (!current) {
+      current = segment;
+      continue;
+    }
+
+    const shouldMerge =
+      isQuantitySegment(current) ||
+      (isUnitSegment(segment) && /(\d+(?:\.\d+)?|[半一二两三四五六七八九十])$/i.test(current)) ||
+      (endsWithQuantityAndUnit(current) && !/^(\d+(?:\.\d+)?|[半一二两三四五六七八九十])/i.test(segment));
+
+    if (shouldMerge) {
+      current += segment;
+      continue;
+    }
+
+    tokens.push(current);
+    current = segment;
+  }
+
+  if (current) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
+function splitMealTokens(text: string) {
+  const chunks: string[] = [];
   let current = "";
   let parenthesisDepth = 0;
 
@@ -628,7 +677,7 @@ function splitMealTokens(text: string) {
     if (parenthesisDepth === 0 && /[，,\/+\n；;、]/.test(char)) {
       const token = current.trim();
       if (token) {
-        tokens.push(token);
+        chunks.push(token);
       }
       current = "";
       continue;
@@ -639,10 +688,24 @@ function splitMealTokens(text: string) {
 
   const finalToken = current.trim();
   if (finalToken) {
-    tokens.push(finalToken);
+    chunks.push(finalToken);
   }
 
-  return tokens;
+  return chunks.flatMap((chunk) => splitTokenByWhitespace(chunk));
+}
+
+export function getFoodLibraryConsistencyIssues() {
+  return foodLibrary
+    .map((item) => {
+      const derivedCalories = calculateCaloriesFromMacros(item.proteinG, item.carbsG, item.fatsG);
+      return {
+        id: item.id,
+        calories: item.calories,
+        derivedCalories,
+        difference: roundNutrition(derivedCalories - item.calories),
+      };
+    })
+    .filter((item) => Math.abs(item.difference) >= 5);
 }
 
 function detectCookingMethodFromText(text: string): MealCookingMethod | undefined {
@@ -805,8 +868,8 @@ function convertQuantityToMeasure(
 
 function parseQuantity(token: string, item: FoodLibraryItem): QuantityInfo {
   const normalized = token.replace(/\s+/g, "");
-  const numericMatches = [...normalized.matchAll(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l|片|个|只|块|颗|根|杯|碗|份)/gi)];
-  const chineseMatch = normalized.match(/([半一二两三四五六七八九十])\s*(片|个|只|块|颗|根|杯|碗|份)/);
+  const numericMatches = [...normalized.matchAll(/(\d+(?:\.\d+)?)\s*(kg|g|ml|l|片|个|只|块|颗|根|杯|碗|份|勺)/gi)];
+  const chineseMatch = normalized.match(/([半一二两三四五六七八九十])\s*(片|个|只|块|颗|根|杯|碗|份|勺)/);
 
   const preferredMatch = numericMatches.find((match) => ["kg", "g", "ml", "l"].includes(match[2].toLowerCase())) ?? numericMatches[0];
   if (preferredMatch) {
@@ -932,12 +995,28 @@ function uniqueWarnings(warnings: string[]) {
   return [...new Set(warnings.filter(Boolean))];
 }
 
-function isOilApplicable(hasParsedItems: boolean, hasComboMatch: boolean, oilEligibleCategories: Set<string>) {
-  if (!hasParsedItems || oilEligibleCategories.size === 0) {
+function isOilApplicable(params: {
+  hasParsedItems: boolean;
+  hasComboMatch: boolean;
+  oilEligibleCategories: Set<string>;
+  cookingMethod?: MealCookingMethod;
+}) {
+  if (!params.hasParsedItems) {
     return false;
   }
 
-  return hasComboMatch || (oilEligibleCategories.has("protein") && oilEligibleCategories.has("vegetable"));
+  if (params.cookingMethod) {
+    return params.hasComboMatch || params.oilEligibleCategories.size > 0;
+  }
+
+  if (params.oilEligibleCategories.size === 0) {
+    return false;
+  }
+
+  return (
+    params.hasComboMatch ||
+    (params.oilEligibleCategories.has("protein") && params.oilEligibleCategories.has("vegetable"))
+  );
 }
 
 function resolveCookingMethod(params: {
@@ -1108,7 +1187,12 @@ export function parseMealText(text: string, options: MealParseOptions = {}): Mea
     }
   }
 
-  const oilApplicable = isOilApplicable(parsedItems.length > 0, combos.length > 0, oilEligibleCategories);
+  const oilApplicable = isOilApplicable({
+    hasParsedItems: parsedItems.length > 0,
+    hasComboMatch: combos.length > 0,
+    oilEligibleCategories,
+    cookingMethod: options.cookingMethod,
+  });
   const cookingMethodResolution = resolveCookingMethod({
     text,
     cookingMethod: options.cookingMethod,

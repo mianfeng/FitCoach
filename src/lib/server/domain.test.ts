@@ -7,11 +7,13 @@ import {
   buildChatContextBundle,
   buildDailyBrief,
   buildNextDayDecision,
+  buildRescheduledOutBrief,
   buildSessionSummary,
   buildStrictDailyReviewMarkdown,
   getNextScheduledDay,
+  rebaseDailyBriefToDate,
 } from "@/lib/server/domain";
-import type { SessionReport } from "@/lib/types";
+import type { SessionReport, TrainingReschedule } from "@/lib/types";
 
 describe("training scheduler", () => {
   it("starts from day A when there is no history", () => {
@@ -117,6 +119,7 @@ describe("daily brief", () => {
     const existing = {
       id: "brief-old",
       date: "2026-03-12",
+      scheduledDate: "2026-03-12",
       scheduledDay: "A" as const,
       calendarLabel: "W1D1A",
       calendarSlot: "A" as const,
@@ -157,6 +160,50 @@ describe("daily brief", () => {
     expect(result.reused).toBe(false);
     expect(result.brief.planRevisionId).toBe("planrev-new");
     expect(result.brief.workoutPrescription.title).not.toBe("旧计划");
+  });
+
+  it("rebases a historical training day onto the actual execution date", () => {
+    const source = buildDailyBrief(
+      {
+        date: "2026-03-12",
+        userQuestion: "今天怎么练",
+      },
+      defaultProfile,
+      defaultPlan,
+      defaultTemplates,
+      [],
+      null,
+    ).brief;
+    const reschedule: TrainingReschedule = {
+      id: "reschedule-1",
+      sourceDate: "2026-03-12",
+      targetDate: "2026-03-15",
+      sourceDay: "A",
+      sourceLabel: "W1D1A",
+      action: "postpone",
+      createdAt: "2026-03-12T10:00:00.000Z",
+    };
+
+    const rebased = rebaseDailyBriefToDate(source, "2026-03-15", reschedule);
+
+    expect(rebased.date).toBe("2026-03-15");
+    expect(rebased.scheduledDate).toBe("2026-03-12");
+    expect(rebased.rescheduledFromDate).toBe("2026-03-12");
+    expect(rebased.rescheduledToDate).toBe("2026-03-15");
+  });
+
+  it("builds a recovery-only brief when a day has been postponed out", () => {
+    const brief = buildRescheduledOutBrief({
+      date: "2026-03-12",
+      targetDate: "2026-03-15",
+      profile: defaultProfile,
+      plan: defaultPlan,
+    });
+
+    expect(brief.isRestDay).toBe(true);
+    expect(brief.calendarSlot).toBe("rest");
+    expect(brief.rescheduledToDate).toBe("2026-03-15");
+    expect(brief.workoutPrescription.exercises).toEqual([]);
   });
 });
 

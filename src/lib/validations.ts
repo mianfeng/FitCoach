@@ -5,6 +5,7 @@ const performedDaySchema = z.union([dayCodeSchema, z.literal("rest")]);
 const schedulePatternSchema = z.literal("3on1off");
 const postWorkoutSourceSchema = z.enum(["dedicated", "lunch", "dinner"]);
 const mealAdherenceSchema = z.enum(["on_plan", "adjusted", "missed"]);
+const planCalendarSlotSchema = z.union([dayCodeSchema, z.literal("rest")]);
 const mealCookingMethodSchema = z.enum([
   "poached_steamed",
   "stir_fry_light",
@@ -64,7 +65,7 @@ export const planSetupSchema = z.object({
           date: z.string(),
           week: z.number().min(1),
           dayIndex: z.number().min(1).max(7),
-          slot: z.union([dayCodeSchema, z.literal("rest")]),
+          slot: planCalendarSlotSchema,
           label: z.string().min(1),
         }),
       )
@@ -203,6 +204,7 @@ const nextDayDecisionSchema = z.object({
 
 const sessionReportBaseSchema = z.object({
   date: z.string().min(1),
+  scheduledDate: z.string().min(1).optional(),
   performedDay: performedDaySchema,
   exerciseResults: z.array(exerciseResultSchema).optional(),
   bodyWeightKg: z.number().positive(),
@@ -244,3 +246,24 @@ export const sessionReportSchema = z
       });
     }
   });
+
+export const trainingRescheduleSchema = z
+  .object({
+    sourceDate: z.string().min(1),
+    targetDate: z.string().min(1),
+    note: z.string().trim().max(200).optional(),
+  })
+  .refine((value) => value.sourceDate !== value.targetDate, {
+    path: ["targetDate"],
+    message: "目标日期不能和原日期相同。",
+  });
+
+export const trainingRescheduleUpdateSchema = z.object({
+  id: z.string().min(1),
+  targetDate: z.string().min(1),
+  note: z.string().trim().max(200).optional(),
+});
+
+export const trainingRescheduleDeleteSchema = z.object({
+  id: z.string().min(1),
+});

@@ -21,6 +21,7 @@ import type {
   PlanSetupInput,
   ParsedMealItem,
   SessionReport,
+  TrainingReschedule,
   WorkoutTemplate,
 } from "@/lib/types";
 import { isoToday, uid } from "@/lib/utils";
@@ -134,8 +135,17 @@ type ChatRow = {
   created_at?: string;
 };
 
+type TrainingRescheduleRow = {
+  id: string;
+  reschedule: TrainingReschedule;
+  source_date?: string | null;
+  target_date?: string | null;
+  created_at?: string;
+};
+
 type MockStore = DashboardSnapshot & {
   planSnapshots: PlanSnapshot[];
+  trainingReschedules: TrainingReschedule[];
   knowledgeDocs: Awaited<ReturnType<typeof loadLocalKnowledgeBundle>>["doc"][];
   knowledgeChunks: Awaited<ReturnType<typeof loadLocalKnowledgeBundle>>["chunks"];
 };
@@ -160,6 +170,9 @@ export interface Repository {
   saveMemorySummary(summary: MemorySummary): Promise<MemorySummary>;
   listChatMessages(limit?: number): Promise<ChatMessage[]>;
   saveChatMessage(message: ChatMessage): Promise<ChatMessage>;
+  listTrainingReschedules(): Promise<TrainingReschedule[]>;
+  saveTrainingReschedule(reschedule: TrainingReschedule): Promise<TrainingReschedule>;
+  deleteTrainingReschedule(id: string): Promise<void>;
   searchKnowledge(query: string, limit?: number): Promise<MockStore["knowledgeChunks"]>;
   importKnowledge(markdown: string, title: string, sourcePath: string): Promise<KnowledgeImportResult>;
   bootstrapKnowledge(): Promise<KnowledgeImportResult>;
@@ -176,6 +189,7 @@ async function getMockStore() {
     const knowledge = await loadLocalKnowledgeBundle();
     globalThis.__fitcoachMockStore__ = {
       ...defaultState,
+      trainingReschedules: [],
       knowledgeDocs: [knowledge.doc],
       knowledgeChunks: knowledge.chunks,
     };
@@ -305,6 +319,15 @@ function buildMealLogFromRows(rows: ReportMealRow[] | undefined) {
   }
 
   return mealLog;
+}
+
+function normalizeTrainingRescheduleRow(row: TrainingRescheduleRow): TrainingReschedule {
+  return {
+    ...row.reschedule,
+    sourceDate: row.reschedule.sourceDate ?? row.source_date ?? "",
+    targetDate: row.reschedule.targetDate ?? row.target_date ?? "",
+    createdAt: row.reschedule.createdAt ?? row.created_at ?? new Date().toISOString(),
+  };
 }
 
 function groupByReportId<T extends { report_id: string }>(items: T[] | null | undefined) {
@@ -590,6 +613,24 @@ function createMockRepository(): Repository {
       const store = await getMockStore();
       store.chatMessages = [...store.chatMessages, message].slice(-40);
       return message;
+    },
+    async listTrainingReschedules() {
+      const store = await getMockStore();
+      return [...store.trainingReschedules].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    },
+    async saveTrainingReschedule(reschedule) {
+      const store = await getMockStore();
+      store.trainingReschedules = [
+        ...store.trainingReschedules.filter(
+          (item) => item.id !== reschedule.id && item.sourceDate !== reschedule.sourceDate && item.targetDate !== reschedule.targetDate,
+        ),
+        reschedule,
+      ].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+      return reschedule;
+    },
+    async deleteTrainingReschedule(id) {
+      const store = await getMockStore();
+      store.trainingReschedules = store.trainingReschedules.filter((item) => item.id !== id);
     },
     async searchKnowledge(query, limit = 3) {
       const store = await getMockStore();
@@ -1070,6 +1111,32 @@ function createSupabaseRepository(): Repository {
         throw error;
       }
       return message;
+    },
+    async listTrainingReschedules() {
+      const { data } = await supabase
+        .from("training_reschedules")
+        .select("*")
+        .order("created_at", { ascending: true })
+        .returns<TrainingRescheduleRow[]>();
+      return (data ?? []).map((row) => normalizeTrainingRescheduleRow(row));
+    },
+    async saveTrainingReschedule(reschedule) {
+      const { error } = await supabase.from("training_reschedules").upsert({
+        id: reschedule.id,
+        reschedule,
+        source_date: reschedule.sourceDate,
+        target_date: reschedule.targetDate,
+      });
+      if (error) {
+        throw error;
+      }
+      return reschedule;
+    },
+    async deleteTrainingReschedule(id) {
+      const { error } = await supabase.from("training_reschedules").delete().eq("id", id);
+      if (error) {
+        throw error;
+      }
     },
     async searchKnowledge(query, limit = 3) {
       await ensureKnowledgeSeeded(supabase);

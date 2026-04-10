@@ -4,12 +4,15 @@ import { NextResponse } from "next/server";
 import {
   buildDailyBriefFromSnapshot,
   buildNextDayDecision,
+  buildRescheduledOutBrief,
   buildStrictDailyReviewMarkdown,
   buildTodayAutofillBrief,
+  rebaseDailyBriefToDate,
 } from "@/lib/server/domain";
 import { computeMealLogNutritionWithGemini, generateGeminiDailyReview } from "@/lib/server/gemini";
 import { createEmptyMealLog, deriveDietAdherence, normalizeMealLog } from "@/lib/session-report";
 import { getRepository } from "@/lib/server/repository";
+import { findInboundReschedule, findOutboundReschedule, findReportForDate } from "@/lib/training-reschedule";
 import { uid } from "@/lib/utils";
 import { sessionReportSchema } from "@/lib/validations";
 
@@ -29,17 +32,45 @@ export async function POST(request: Request) {
       recoveryNote: parsed.recoveryNote?.trim() || undefined,
     };
     const snapshot = await repository.getDashboardSnapshot();
+    const reports = await repository.listSessionReports(Math.max(snapshot.plan.calendarEntries.length + 14, 90));
+    const reschedules = await repository.listTrainingReschedules();
     const planSnapshot = await repository.findPlanSnapshotByDate(parsed.date);
-    const reviewBrief =
-      planSnapshot
-        ? buildDailyBriefFromSnapshot(planSnapshot)
-        : buildTodayAutofillBrief(
-            parsed.date,
-            snapshot.profile,
-            snapshot.plan,
-            snapshot.templates,
-            snapshot.recentReports,
-          );
+    const inboundReschedule = findInboundReschedule(reschedules, parsed.date);
+    const outboundReschedule = findOutboundReschedule(reschedules, parsed.date);
+    const existingReport = findReportForDate(reports, parsed.date);
+    const inboundSnapshot = inboundReschedule
+      ? await repository.findPlanSnapshotByDate(inboundReschedule.sourceDate)
+      : null;
+    const reviewBrief = inboundReschedule
+      ? rebaseDailyBriefToDate(
+          inboundSnapshot
+            ? buildDailyBriefFromSnapshot(inboundSnapshot)
+            : buildTodayAutofillBrief(
+                inboundReschedule.sourceDate,
+                snapshot.profile,
+                snapshot.plan,
+                snapshot.templates,
+                reports,
+              ),
+          parsed.date,
+          inboundReschedule,
+        )
+      : outboundReschedule && !existingReport
+        ? buildRescheduledOutBrief({
+            date: parsed.date,
+            targetDate: outboundReschedule.targetDate,
+            profile: snapshot.profile,
+            plan: snapshot.plan,
+          })
+        : planSnapshot
+          ? buildDailyBriefFromSnapshot(planSnapshot)
+          : buildTodayAutofillBrief(
+              parsed.date,
+              snapshot.profile,
+              snapshot.plan,
+              snapshot.templates,
+              reports,
+            );
     const targetNutrition = {
       calories:
         reviewBrief.mealPrescription.macros.proteinG * 4 +
@@ -56,6 +87,7 @@ export async function POST(request: Request) {
     });
     const reportWithNutrition = {
       ...normalizedReport,
+      scheduledDate: reviewBrief.scheduledDate,
       mealLog: nutritionSummary.mealLog,
       nutritionTotals: nutritionSummary.status === "ready" ? nutritionSummary.nutritionTotals : undefined,
       nutritionGap: nutritionSummary.status === "ready" ? nutritionSummary.nutritionGap : undefined,

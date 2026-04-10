@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { SectionCard } from "@/components/section-card";
 import { regenerateLinearPlan } from "@/lib/plan-generator";
+import { getScheduledDate } from "@/lib/training-reschedule";
 import type { DayCode, PlanCalendarEntry, PlanSetupInput, SessionReport } from "@/lib/types";
 import { formatDateLabel, uid } from "@/lib/utils";
 
@@ -62,7 +63,7 @@ export function PlanEditor({ initialData, recentReports, today, storageMode }: P
   );
   const [isPending, startTransition] = useTransition();
 
-  const reportDates = useMemo(() => new Set(recentReports.map((report) => report.date)), [recentReports]);
+  const reportDates = useMemo(() => new Set(recentReports.map((report) => getScheduledDate(report))), [recentReports]);
   const groupedWeeks = useMemo(() => groupByWeek(form.plan.calendarEntries), [form.plan.calendarEntries]);
   const visibleWeek = groupedWeeks.find(([week]) => week === selectedWeek) ?? groupedWeeks[0];
 

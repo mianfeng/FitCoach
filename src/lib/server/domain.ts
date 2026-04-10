@@ -19,6 +19,7 @@ import type {
   PlanSnapshot,
   PlanAdjustmentProposal,
   SessionReport,
+  TrainingReschedule,
   UserProfile,
   WorkoutPrescription,
   WorkoutPrescriptionExercise,
@@ -277,6 +278,7 @@ export function buildDailyBrief(
       brief: {
         ...existingBrief,
         scheduledDay: fallbackScheduledDay,
+        scheduledDate: request.date,
         calendarLabel: calendarEntry.label,
         calendarSlot: calendarEntry.slot,
         isRestDay: calendarEntry.slot === "rest",
@@ -320,6 +322,7 @@ export function buildDailyBrief(
     brief: {
       id: uid("brief"),
       date: request.date,
+      scheduledDate: request.date,
       scheduledDay,
       calendarLabel: calendarEntry.label,
       calendarSlot: calendarEntry.slot,
@@ -345,6 +348,7 @@ export function buildDailyBriefFromSnapshot(snapshot: PlanSnapshot): DailyBrief 
   return {
     id: uid("brief"),
     date: snapshot.date,
+    scheduledDate: snapshot.date,
     scheduledDay: snapshot.scheduledDay === "rest" ? undefined : snapshot.scheduledDay,
     calendarLabel: snapshot.label,
     calendarSlot: snapshot.scheduledDay,
@@ -487,6 +491,63 @@ function getNutritionDeviationSummary(nutritionGap: SessionReport["nutritionGap"
     moderateCount: [calories, proteinG, carbsG, fatsG].filter((value) => value >= 0.15).length,
     majorCount: [calories, proteinG, carbsG, fatsG].filter((value) => value >= 0.3).length,
   };
+}
+
+export function rebaseDailyBriefToDate(brief: DailyBrief, displayDate: string, reschedule: TrainingReschedule): DailyBrief {
+  return {
+    ...brief,
+    id: uid("brief"),
+    date: displayDate,
+    scheduledDate: reschedule.sourceDate,
+    rescheduledFromDate: reschedule.sourceDate,
+    rescheduledToDate: reschedule.targetDate,
+    reasoningSummary: [
+      `该训练原定于 ${reschedule.sourceDate}，已调整到 ${reschedule.targetDate} 执行。`,
+      ...brief.reasoningSummary,
+    ],
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export function buildRescheduledOutBrief(params: {
+  date: string;
+  targetDate: string;
+  profile: UserProfile;
+  plan: LongTermPlan;
+}) {
+  const { date, targetDate, profile, plan } = params;
+  const calendarEntry = resolveCalendarEntry(plan, date);
+
+  return {
+    id: uid("brief"),
+    date,
+    scheduledDate: date,
+    scheduledDay: undefined,
+    calendarLabel: calendarEntry.label,
+    calendarSlot: "rest" as const,
+    isRestDay: true,
+    rescheduledToDate: targetDate,
+    workoutPrescription: {
+      dayCode: "A" as const,
+      title: "训练已顺延",
+      objective: `这一天的训练已顺延到 ${targetDate}，今天按恢复日处理。`,
+      warmup: ["20 分钟轻活动", "肩髋灵活性 10 分钟", "早点睡"],
+      exercises: [],
+      caution: [
+        `${calendarEntry.label} 原定训练已改到 ${targetDate}。`,
+        "今天不需要填写训练动作，优先恢复、补水和规律饮食。",
+      ],
+    },
+    mealPrescription: buildMealPrescription(profile, plan, "rest"),
+    reasoningSummary: [
+      `该日期原定训练已顺延到 ${targetDate}。`,
+      "为了避免同一天显示两套训练，当前页面切换为恢复日视图。",
+    ],
+    planRevisionId: plan.planRevisionId,
+    sourceSnapshotId: uid("snapshot"),
+    userQuestion: "",
+    createdAt: new Date().toISOString(),
+  } satisfies DailyBrief;
 }
 
 function resolveDailyReviewRating(params: {

@@ -237,6 +237,7 @@ export function normalizeStoredSessionReport(report: Omit<SessionReport, "mealLo
   return {
     ...report,
     reportVersion: inferredVersion,
+    scheduledDate: report.scheduledDate ?? report.date,
     mealLog,
     trainingReportText: report.trainingReportText ?? "",
     dietAdherence: report.dietAdherence ?? deriveDietAdherence(mealLog),

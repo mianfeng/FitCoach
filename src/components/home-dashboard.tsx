@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { SectionCard } from "@/components/section-card";
 import { detectRinseOilFromText } from "@/lib/nutrition";
+import { findInboundReschedule, findOutboundReschedule, findReportForDate, listMissedTrainingEntries } from "@/lib/training-reschedule";
 import {
   buildMealLogForSubmit,
   countFilledMealSlots,
@@ -17,9 +18,11 @@ import type {
   DashboardSnapshot,
   DailyBrief,
   ExerciseResult,
+  LongTermPlan,
   MealCookingMethod,
   MealLog,
   SessionReport,
+  TrainingReschedule,
 } from "@/lib/types";
 
 type ReportDraft = {
@@ -60,6 +63,14 @@ type SessionReportResponse = {
   report: SessionReport;
   review: string | null;
   submissionMode: "draft" | "completed";
+};
+
+type TrainingRescheduleResponse = {
+  reschedule: TrainingReschedule;
+};
+
+type TrainingRescheduleDeleteResponse = {
+  ok: boolean;
 };
 
 type CoachChatResponse = {
@@ -183,7 +194,13 @@ function buildReportDraft(
   };
 }
 
-async function postJson<T>(url: string, payload: unknown) {
+function shiftIsoDate(date: string, offsetDays: number) {
+  const next = new Date(`${date}T00:00:00`);
+  next.setDate(next.getDate() + offsetDays);
+  return next.toISOString().slice(0, 10);
+}
+
+async function postJson<T>(url: string, payload: unknown, method = "POST") {
   const parseResponseBody = (raw: string) => {
     const normalized = raw
       .trim()
@@ -198,7 +215,7 @@ async function postJson<T>(url: string, payload: unknown) {
   };
 
   const response = await fetch(url, {
-    method: "POST",
+    method,
     headers: {
       "Content-Type": "application/json",
     },
@@ -268,6 +285,8 @@ interface HomeDashboardProps {
   snapshot: DashboardSnapshot;
   today: string;
   todayBrief: DailyBrief;
+  reportHistory: SessionReport[];
+  trainingReschedules: TrainingReschedule[];
   isHistorical?: boolean;
   historyMissingSnapshot?: boolean;
 }
@@ -276,6 +295,8 @@ export function HomeDashboard({
   snapshot,
   today,
   todayBrief,
+  reportHistory,
+  trainingReschedules,
   isHistorical = false,
   historyMissingSnapshot = false,
 }: HomeDashboardProps) {
@@ -284,14 +305,30 @@ export function HomeDashboard({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [submissionMode, setSubmissionMode] = useState<"draft" | "completed" | null>(null);
   const [isAsking, startAskTransition] = useTransition();
-  const existingReport = snapshot.recentReports.find((item) => item.date === today);
+  const [isRescheduling, startRescheduleTransition] = useTransition();
+  const existingReport = findReportForDate(reportHistory, today);
   const [coachInput, setCoachInput] = useState("");
-  const [coachReply, setCoachReply] = useState<CoachReplyState>(() => buildInitialCoachReply(snapshot, existingReport));
-  const [reportDraft, setReportDraft] = useState(() => buildReportDraft(todayBrief, snapshot, today, existingReport));
+  const [coachReply, setCoachReply] = useState<CoachReplyState>(() =>
+    buildInitialCoachReply(snapshot, existingReport ?? undefined),
+  );
+  const [reportDraft, setReportDraft] = useState(() =>
+    buildReportDraft(todayBrief, snapshot, today, existingReport ?? undefined),
+  );
   const [hasExerciseEdits, setHasExerciseEdits] = useState(() => Boolean(existingReport?.exerciseResults?.length));
   const [mealLogDirty, setMealLogDirty] = useState(false);
+  const [postponeDate, setPostponeDate] = useState(() => shiftIsoDate(today, 1));
+  const [selectedMissedDate, setSelectedMissedDate] = useState("");
   const isSubmitting = submissionMode !== null;
   const setIsSubmitting = (value: boolean) => setSubmissionMode(value ? "completed" : null);
+  const inboundReschedule = findInboundReschedule(trainingReschedules, today);
+  const outboundReschedule = findOutboundReschedule(trainingReschedules, today);
+  const activeReschedule = outboundReschedule ?? inboundReschedule;
+  const missedTrainingEntries = listMissedTrainingEntries({
+    plan: snapshot.plan as LongTermPlan,
+    reports: reportHistory,
+    reschedules: trainingReschedules,
+    today,
+  });
   const hasMealContent = MEAL_SLOTS.some((slot) => reportDraft.mealLog[slot.key].content.trim().length > 0);
   const hasReadyNutrition =
     !mealLogDirty &&
@@ -306,13 +343,18 @@ export function HomeDashboard({
   const previewMealLog = reportDraft.mealLog;
 
   useEffect(() => {
-    const report = snapshot.recentReports.find((item) => item.date === today);
-    setReportDraft(buildReportDraft(todayBrief, snapshot, today, report));
-    setCoachReply(buildInitialCoachReply(snapshot, report));
+    const report = findReportForDate(reportHistory, today);
+    setReportDraft(buildReportDraft(todayBrief, snapshot, today, report ?? undefined));
+    setCoachReply(buildInitialCoachReply(snapshot, report ?? undefined));
     setHasExerciseEdits(Boolean(report?.exerciseResults?.length));
     setMealLogDirty(false);
     setShowAdvanced(false);
-  }, [snapshot, today, todayBrief]);
+    setPostponeDate(shiftIsoDate(today, 1));
+    if (outboundReschedule || inboundReschedule) {
+      setPostponeDate((outboundReschedule ?? inboundReschedule)?.targetDate ?? shiftIsoDate(today, 1));
+    }
+    setSelectedMissedDate("");
+  }, [inboundReschedule, outboundReschedule, reportHistory, snapshot, today, todayBrief]);
 
   useEffect(() => {
     const storedFeedback = window.sessionStorage.getItem(REPORT_FEEDBACK_KEY);
@@ -420,6 +462,71 @@ export function HomeDashboard({
           basis: [],
           contextSummary: snapshot.plan.goal,
           source: "error",
+        });
+      }
+    });
+  }
+
+  function submitTrainingReschedule(sourceDate: string, targetDate: string) {
+    startRescheduleTransition(async () => {
+      try {
+        const response = await postJson<TrainingRescheduleResponse>("/api/training-reschedules", {
+          sourceDate,
+          targetDate,
+        });
+        const direction = response.reschedule.action === "postpone" ? "已顺延" : "已提到今天";
+        setFeedback({
+          tone: "success",
+          message: `${response.reschedule.sourceLabel} ${direction}，目标日期 ${response.reschedule.targetDate}。`,
+        });
+        router.refresh();
+      } catch (error) {
+        setFeedback({
+          tone: "error",
+          message: error instanceof Error ? error.message : "调整训练日失败。",
+        });
+      }
+    });
+  }
+
+  function updateTrainingReschedule(id: string, targetDate: string) {
+    startRescheduleTransition(async () => {
+      try {
+        const response = await postJson<TrainingRescheduleResponse>(
+          "/api/training-reschedules",
+          {
+            id,
+            targetDate,
+          },
+          "PATCH",
+        );
+        setFeedback({
+          tone: "success",
+          message: `${response.reschedule.sourceLabel} 已改期到 ${response.reschedule.targetDate}。`,
+        });
+        router.refresh();
+      } catch (error) {
+        setFeedback({
+          tone: "error",
+          message: error instanceof Error ? error.message : "改期失败。",
+        });
+      }
+    });
+  }
+
+  function cancelTrainingReschedule(id: string) {
+    startRescheduleTransition(async () => {
+      try {
+        await postJson<TrainingRescheduleDeleteResponse>("/api/training-reschedules", { id }, "DELETE");
+        setFeedback({
+          tone: "success",
+          message: "已取消这条训练顺延。",
+        });
+        router.refresh();
+      } catch (error) {
+        setFeedback({
+          tone: "error",
+          message: error instanceof Error ? error.message : "取消顺延失败。",
         });
       }
     });
@@ -627,6 +734,124 @@ export function HomeDashboard({
         </div>
       </SectionCard>
 
+      {!isHistorical ? (
+        <SectionCard eyebrow="Reschedule" title="??????">
+          {activeReschedule ? (
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+              <div className="rounded-[24px] border border-black/10 bg-white/82 p-4">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Manage</div>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">????????</h3>
+                <div className="mt-3 rounded-[18px] border border-black/10 bg-[#faf7ef] px-4 py-3 text-sm leading-6 text-[#151811]">
+                  <div>?????{activeReschedule.sourceDate}</div>
+                  <div>??????{activeReschedule.targetDate}</div>
+                  <div>???{activeReschedule.sourceLabel}</div>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-black/54">
+                  {activeReschedule.targetDate === today
+                    ? "??????????????????????????????"
+                    : "????????????????????????????"}
+                </p>
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  <input
+                    type="date"
+                    value={postponeDate}
+                    onChange={(event) => setPostponeDate(event.target.value)}
+                    className="w-full rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3 text-sm text-[#151811] outline-none"
+                  />
+                  <button
+                    type="button"
+                    disabled={isRescheduling || !postponeDate || postponeDate === activeReschedule.sourceDate}
+                    onClick={() => updateTrainingReschedule(activeReschedule.id, postponeDate)}
+                    className="rounded-full bg-[#151811] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#23271d] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isRescheduling ? "???..." : "?????"}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  disabled={isRescheduling}
+                  onClick={() => cancelTrainingReschedule(activeReschedule.id)}
+                  className="mt-3 rounded-full border border-[#d6b9ac] bg-[#fff1ec] px-5 py-3 text-sm font-semibold text-[#8a3524] transition hover:bg-[#ffe5dc] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isRescheduling ? "???..." : "????"}
+                </button>
+              </div>
+
+              <div className="rounded-[24px] border border-black/10 bg-white/82 p-4">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Notice</div>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">????</h3>
+                <div className="mt-3 space-y-2 text-sm leading-6 text-black/58">
+                  <p>??????????????????????</p>
+                  <p>???????????????????????????????????</p>
+                  <p>???????????????????</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-[24px] border border-black/10 bg-white/82 p-4">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Today To Future</div>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">???????</h3>
+                <p className="mt-2 text-sm leading-6 text-black/54">
+                  {todayBrief.rescheduledFromDate
+                    ? `???????? ${todayBrief.rescheduledFromDate} ??????????????????????`
+                    : "??????????????????"}
+                </p>
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  <input
+                    type="date"
+                    min={shiftIsoDate(today, 1)}
+                    value={postponeDate}
+                    onChange={(event) => setPostponeDate(event.target.value)}
+                    className="w-full rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3 text-sm text-[#151811] outline-none"
+                  />
+                  <button
+                    type="button"
+                    disabled={isRescheduling || !postponeDate}
+                    onClick={() => submitTrainingReschedule(today, postponeDate)}
+                    className="rounded-full bg-[#151811] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#23271d] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isRescheduling ? "???..." : "????"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-black/10 bg-white/82 p-4">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Past To Today</div>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">???????</h3>
+                <p className="mt-2 text-sm leading-6 text-black/54">
+                  {missedTrainingEntries.length
+                    ? "???????????????????????"
+                    : "????????????????"}
+                </p>
+                <div className="mt-4 flex flex-col gap-3">
+                  <select
+                    value={selectedMissedDate}
+                    onChange={(event) => setSelectedMissedDate(event.target.value)}
+                    disabled={isRescheduling || !missedTrainingEntries.length}
+                    className="w-full rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3 text-sm text-[#151811] outline-none disabled:opacity-60"
+                  >
+                    <option value="">??????</option>
+                    {missedTrainingEntries.map((entry) => (
+                      <option key={entry.date} value={entry.date}>
+                        {entry.date} ? {entry.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={isRescheduling || !selectedMissedDate}
+                    onClick={() => submitTrainingReschedule(selectedMissedDate, today)}
+                    className="rounded-full bg-[#d5ff63] px-5 py-3 text-sm font-semibold text-[#151811] transition hover:bg-[#c2f24a] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isRescheduling ? "???..." : "????"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </SectionCard>
+      ) : null}
       <SectionCard
         eyebrow="Execution"
         title="Today's plan and log"
@@ -646,6 +871,16 @@ export function HomeDashboard({
             <div className="rounded-[20px] border border-[#e5d6ae] bg-[#fff6df] px-4 py-3 text-sm leading-6 text-[#5a4620]">
               Draft exists for today. Keep adding meals, recovery data, or workout details. Only Complete Report will
               generate the final review and next-day decision.
+            </div>
+          ) : null}
+
+          {todayBrief.rescheduledFromDate || todayBrief.rescheduledToDate ? (
+            <div className="rounded-[20px] border border-[#d9d0b9] bg-[#faf4e3] px-4 py-3 text-sm leading-6 text-[#5a4620]">
+              {todayBrief.rescheduledFromDate && todayBrief.rescheduledFromDate !== today
+                ? `当前执行的是 ${todayBrief.rescheduledFromDate} 的训练内容，实际记录日期仍然记在今天。`
+                : todayBrief.rescheduledToDate
+                  ? `这一天原定训练已顺延到 ${todayBrief.rescheduledToDate}，当前页面按恢复日处理。`
+                  : `该训练原定日期为 ${todayBrief.scheduledDate}。`}
             </div>
           ) : null}
 

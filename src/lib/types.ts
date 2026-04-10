@@ -16,6 +16,7 @@ export type MealCookingMethod =
   | "stir_fry_heavy"
   | "grill_pan_sear"
   | "deep_fry";
+export type TrainingRescheduleAction = "postpone" | "advance";
 
 export interface CoachPersona {
   id: string;
@@ -176,10 +177,13 @@ export interface MealPrescription {
 export interface DailyBrief {
   id: string;
   date: string;
+  scheduledDate: string;
   scheduledDay?: DayCode;
   calendarLabel: string;
   calendarSlot: PlanCalendarSlot;
   isRestDay: boolean;
+  rescheduledFromDate?: string;
+  rescheduledToDate?: string;
   workoutPrescription: WorkoutPrescription;
   mealPrescription: MealPrescription;
   reasoningSummary: string[];
@@ -287,6 +291,7 @@ export interface SessionReport {
   id: string;
   reportVersion: 1 | 2;
   date: string;
+  scheduledDate?: string;
   performedDay: PlanCalendarSlot;
   exerciseResults?: ExerciseResult[];
   bodyWeightKg: number;
@@ -383,6 +388,17 @@ export interface ChatResponse {
   answer: string;
   basis: KnowledgeBasis[];
   contextSummary: string;
+}
+
+export interface TrainingReschedule {
+  id: string;
+  sourceDate: string;
+  targetDate: string;
+  sourceDay: PlanCalendarSlot;
+  sourceLabel: string;
+  action: TrainingRescheduleAction;
+  note?: string;
+  createdAt: string;
 }
 
 export interface PlanSetupInput {

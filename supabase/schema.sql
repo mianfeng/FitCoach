@@ -51,6 +51,14 @@ create table if not exists plan_snapshots (
   created_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists training_reschedules (
+  id text primary key,
+  reschedule jsonb not null,
+  source_date text not null,
+  target_date text not null,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
 create table if not exists chat_messages (
   id text primary key,
   message jsonb not null,
@@ -127,6 +135,9 @@ create index if not exists idx_session_reports_report_date on session_reports (r
 create index if not exists idx_plan_adjustments_created_at on plan_adjustments (created_at desc);
 create index if not exists idx_memory_summaries_created_at on memory_summaries (created_at desc);
 create index if not exists idx_plan_snapshots_created_at on plan_snapshots (created_at desc);
+create index if not exists idx_training_reschedules_created_at on training_reschedules (created_at desc);
+create index if not exists idx_training_reschedules_source_date on training_reschedules (source_date);
+create index if not exists idx_training_reschedules_target_date on training_reschedules (target_date);
 create index if not exists idx_chat_messages_created_at on chat_messages (created_at desc);
 create index if not exists idx_session_report_exercises_report_id on session_report_exercises (report_id, sort_order);
 create index if not exists idx_session_report_meals_report_id on session_report_meals (report_id, sort_order);
@@ -143,6 +154,7 @@ alter table if exists public.nutrition_dishes enable row level security;
 alter table if exists public.plan_adjustments enable row level security;
 alter table if exists public.memory_summaries enable row level security;
 alter table if exists public.plan_snapshots enable row level security;
+alter table if exists public.training_reschedules enable row level security;
 alter table if exists public.chat_messages enable row level security;
 alter table if exists public.knowledge_docs enable row level security;
 alter table if exists public.knowledge_chunks enable row level security;

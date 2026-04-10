@@ -279,6 +279,7 @@ function buildInitialCoachReply(snapshot: DashboardSnapshot, existingReport?: Se
 interface HomeDashboardProps {
   snapshot: DashboardSnapshot;
   today: string;
+  currentDate: string;
   todayBrief: DailyBrief;
   reportHistory: SessionReport[];
   trainingReschedules: TrainingReschedule[];
@@ -289,6 +290,7 @@ interface HomeDashboardProps {
 export function HomeDashboard({
   snapshot,
   today,
+  currentDate,
   todayBrief,
   reportHistory,
   trainingReschedules,
@@ -666,19 +668,40 @@ export function HomeDashboard({
           }
           className="bg-[rgba(249,247,235,0.96)]"
         >
-          <div className="rounded-[20px] border border-black/10 bg-[#151811] px-4 py-3 text-sm text-white/78">
-            {`Current date: ${today}${todayBrief.isRestDay ? " · Rest day" : ""}`}
+          <div className="rounded-[20px] border border-black/10 bg-[#151811] px-4 py-4 text-sm text-white/78">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <div>{`Viewing date: ${today}${todayBrief.isRestDay ? " · Rest day" : ""}`}</div>
+                <div className="text-white/56">
+                  {`Today in Beijing is ${currentDate}. Reschedule actions are only available on the real current-day board.`}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => router.replace("/")}
+                className="inline-flex items-center justify-center rounded-full bg-[#d5ff63] px-4 py-2 text-sm font-semibold text-[#151811] transition hover:bg-[#c2f24a]"
+              >
+                Back to Today
+              </button>
+            </div>
           </div>
         </SectionCard>
       ) : null}
 
-      <SectionCard eyebrow="Today" title="Today Board" className="overflow-hidden">
+      <SectionCard
+        eyebrow={isHistorical ? "Viewed Date" : "Today"}
+        title={isHistorical ? "Historical Board" : "Today Board"}
+        className="overflow-hidden"
+      >
         <div className="rounded-[30px] bg-[#151811] p-4 text-white shadow-[0_28px_80px_rgba(18,22,16,0.28)] sm:p-5">
           <div className="rounded-[22px] border border-white/10 bg-white/6 p-4">
             <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div className="min-w-0">
                 <div className="text-[10px] uppercase tracking-[0.28em] text-white/42">Training Day</div>
                 <div className="mt-3 space-y-2">
+                  <div className="inline-flex w-fit items-center rounded-full border border-white/10 bg-white/8 px-3 py-1.5 text-[11px] font-semibold text-white/76">
+                    {today}
+                  </div>
                   <span className="block font-display text-[38px] leading-none text-[#d5ff63] sm:text-[52px]">
                     {todayBrief.calendarLabel}
                   </span>

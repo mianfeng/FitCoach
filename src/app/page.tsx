@@ -87,6 +87,7 @@ export default async function Home({
     <HomeDashboard
       snapshot={snapshot}
       today={activeDate}
+      currentDate={today}
       todayBrief={todayBrief}
       reportHistory={reportHistory}
       trainingReschedules={trainingReschedules}

@@ -1,5 +1,3 @@
-import { addDays } from "date-fns";
-
 import type {
   ExerciseTemplate,
   MealPrescription,
@@ -11,7 +9,7 @@ import type {
   WorkoutTemplate,
 } from "@/lib/types";
 import { applyCurrentTemplateLayout } from "@/lib/template-layout";
-import { clamp, roundToIncrement, uid } from "@/lib/utils";
+import { clamp, roundToIncrement, shiftIsoDate, uid } from "@/lib/utils";
 
 const nonDeloadRepStyles = ["5x10", "4x10", "4x8", "3x8", "5x5", "3x5", "3x3", "3x3"];
 const nonDeloadLabels = ["初期", "初期", "中期", "中期", "冲刺期", "冲刺期", "极限期", "极限期"];
@@ -108,14 +106,14 @@ function buildCalendarEntries(startDate: string, durationWeeks: number): PlanCal
   const totalDays = durationWeeks * 7;
 
   return Array.from({ length: totalDays }, (_, index) => {
-    const date = addDays(new Date(startDate), index);
+    const date = shiftIsoDate(startDate, index);
     const week = Math.floor(index / 7) + 1;
     const dayIndex = (index % 7) + 1;
     const slot = cycleSlots[index % cycleSlots.length];
     const suffix = slot === "rest" ? "休" : slot;
 
     return {
-      date: date.toISOString().slice(0, 10),
+      date,
       week,
       dayIndex,
       slot,

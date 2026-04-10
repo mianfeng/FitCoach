@@ -1,5 +1,27 @@
-import { format } from "date-fns";
 import clsx, { type ClassValue } from "clsx";
+
+const BEIJING_TIME_ZONE = "Asia/Shanghai";
+
+function parseIsoDateParts(date: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) {
+    throw new Error(`Invalid ISO date: ${date}`);
+  }
+
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+  };
+}
+
+function formatUtcDate(date: Date) {
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+}
 
 export function cn(...inputs: ClassValue[]) {
   return clsx(inputs);
@@ -18,11 +40,41 @@ export function clamp(value: number, min: number, max: number) {
 }
 
 export function isoToday() {
-  return format(new Date(), "yyyy-MM-dd");
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BEIJING_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  if (!year || !month || !day) {
+    throw new Error("Failed to resolve Beijing date");
+  }
+
+  return `${year}-${month}-${day}`;
 }
 
 export function formatDateLabel(date: string) {
-  return format(new Date(date), "MM.dd");
+  const { month, day } = parseIsoDateParts(date);
+  return `${String(month).padStart(2, "0")}.${String(day).padStart(2, "0")}`;
+}
+
+export function shiftIsoDate(date: string, offsetDays: number) {
+  const { year, month, day } = parseIsoDateParts(date);
+  const next = new Date(Date.UTC(year, month - 1, day + offsetDays));
+  return formatUtcDate(next);
+}
+
+export function diffIsoDays(leftDate: string, rightDate: string) {
+  const left = parseIsoDateParts(leftDate);
+  const right = parseIsoDateParts(rightDate);
+  const leftUtc = Date.UTC(left.year, left.month - 1, left.day);
+  const rightUtc = Date.UTC(right.year, right.month - 1, right.day);
+  return Math.round((leftUtc - rightUtc) / 86_400_000);
 }
 
 export function uid(prefix: string) {

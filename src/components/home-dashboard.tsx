@@ -13,6 +13,7 @@ import {
   mealCookingMethodLabels,
   mealSlotLabels,
 } from "@/lib/session-report";
+import { shiftIsoDate } from "@/lib/utils";
 import type {
   ChatMessage,
   DashboardSnapshot,
@@ -192,12 +193,6 @@ function buildReportDraft(
     recoveryNote: existingReport?.recoveryNote ?? "",
     completed: existingReport?.completed ?? false,
   };
-}
-
-function shiftIsoDate(date: string, offsetDays: number) {
-  const next = new Date(`${date}T00:00:00`);
-  next.setDate(next.getDate() + offsetDays);
-  return next.toISOString().slice(0, 10);
 }
 
 async function postJson<T>(url: string, payload: unknown, method = "POST") {

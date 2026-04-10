@@ -1,7 +1,5 @@
 import "server-only";
 
-import { differenceInCalendarDays } from "date-fns";
-
 import type {
   ChatContextBundle,
   ChatMessage,
@@ -32,7 +30,7 @@ import {
   resolvePostWorkoutEntry,
   summarizeMealAdherence,
 } from "@/lib/session-report";
-import { average, isoToday, roundToIncrement, uid } from "@/lib/utils";
+import { average, diffIsoDays, isoToday, roundToIncrement, uid } from "@/lib/utils";
 
 function sortReportsDesc(reports: SessionReport[]) {
   return [...reports].sort((left, right) => right.date.localeCompare(left.date));
@@ -58,7 +56,7 @@ function resolveCalendarEntry(plan: LongTermPlan, date: string): PlanCalendarEnt
     return matched;
   }
 
-  const offsetDays = Math.max(0, differenceInCalendarDays(new Date(date), new Date(plan.startDate)));
+  const offsetDays = Math.max(0, diffIsoDays(date, plan.startDate));
   const week = Math.floor(offsetDays / 7) + 1;
   const dayIndex = (offsetDays % 7) + 1;
   const slot = calendarCycle[offsetDays % calendarCycle.length];
@@ -74,7 +72,7 @@ function resolveCalendarEntry(plan: LongTermPlan, date: string): PlanCalendarEnt
 
 export function getCurrentWeeklyPhase(plan: LongTermPlan, date: string) {
   const weeks = plan.progressionRule.weeklyPhases;
-  const offsetDays = Math.max(0, differenceInCalendarDays(new Date(date), new Date(plan.startDate)));
+  const offsetDays = Math.max(0, diffIsoDays(date, plan.startDate));
   const weekIndex = Math.min(weeks.length - 1, Math.floor(offsetDays / 7));
   return weeks[weekIndex];
 }

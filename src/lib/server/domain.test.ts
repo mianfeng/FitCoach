@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { addDays } from "date-fns";
-
 import { defaultPlan, defaultProfile, defaultTemplates } from "@/lib/seed";
 import {
   buildChatContextBundle,
@@ -14,6 +12,7 @@ import {
   rebaseDailyBriefToDate,
 } from "@/lib/server/domain";
 import type { SessionReport, TrainingReschedule } from "@/lib/types";
+import { shiftIsoDate } from "@/lib/utils";
 
 describe("training scheduler", () => {
   it("starts from day A when there is no history", () => {
@@ -91,7 +90,7 @@ describe("daily brief", () => {
     };
     const result = buildDailyBrief(
       {
-        date: addDays(new Date("2026-03-12"), 3).toISOString().slice(0, 10),
+        date: shiftIsoDate("2026-03-12", 3),
         userQuestion: "休息日怎么吃",
       },
       defaultProfile,

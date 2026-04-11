@@ -753,21 +753,21 @@ export function HomeDashboard({
       </SectionCard>
 
       {!isHistorical ? (
-        <SectionCard eyebrow="Reschedule" title="??????">
+        <SectionCard eyebrow="Reschedule" title="训练日调整">
           {activeReschedule ? (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
               <div className="rounded-[24px] border border-black/10 bg-white/82 p-4">
                 <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Manage</div>
-                <h3 className="mt-1 text-lg font-semibold text-[#151811]">????????</h3>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">已设置的顺延</h3>
                 <div className="mt-3 rounded-[18px] border border-black/10 bg-[#faf7ef] px-4 py-3 text-sm leading-6 text-[#151811]">
-                  <div>?????{activeReschedule.sourceDate}</div>
-                  <div>??????{activeReschedule.targetDate}</div>
-                  <div>???{activeReschedule.sourceLabel}</div>
+                  <div>原训练日：{activeReschedule.sourceDate}</div>
+                  <div>当前目标日：{activeReschedule.targetDate}</div>
+                  <div>计划标签：{activeReschedule.sourceLabel}</div>
                 </div>
                 <p className="mt-3 text-sm leading-6 text-black/54">
                   {activeReschedule.targetDate === today
-                    ? "??????????????????????????????"
-                    : "????????????????????????????"}
+                    ? "这条训练已经被提到今天执行。你可以继续改到别的日期，或者直接取消这次顺延。"
+                    : "这条训练已经改期。你可以修改目标日期，或者直接取消这次顺延。"}
                 </p>
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row">
                   <input
@@ -782,7 +782,7 @@ export function HomeDashboard({
                     onClick={() => updateTrainingReschedule(activeReschedule.id, postponeDate)}
                     className="rounded-full bg-[#151811] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#23271d] disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isRescheduling ? "???..." : "?????"}
+                    {isRescheduling ? "处理中..." : "改到该日期"}
                   </button>
                 </div>
                 <button
@@ -791,17 +791,17 @@ export function HomeDashboard({
                   onClick={() => cancelTrainingReschedule(activeReschedule.id)}
                   className="mt-3 rounded-full border border-[#d6b9ac] bg-[#fff1ec] px-5 py-3 text-sm font-semibold text-[#8a3524] transition hover:bg-[#ffe5dc] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isRescheduling ? "???..." : "????"}
+                  {isRescheduling ? "处理中..." : "取消顺延"}
                 </button>
               </div>
 
               <div className="rounded-[24px] border border-black/10 bg-white/82 p-4">
                 <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Notice</div>
-                <h3 className="mt-1 text-lg font-semibold text-[#151811]">????</h3>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">使用说明</h3>
                 <div className="mt-3 space-y-2 text-sm leading-6 text-black/58">
-                  <p>??????????????????????</p>
-                  <p>???????????????????????????????????</p>
-                  <p>???????????????????</p>
+                  <p>一条训练日同一时间只能存在一条有效顺延记录。</p>
+                  <p>如果目标日期已经有训练记录，或者该训练已经完成，就不能再改期或取消。</p>
+                  <p>调整后首页和历史页会按新的执行日期显示。</p>
                 </div>
               </div>
             </div>
@@ -809,11 +809,11 @@ export function HomeDashboard({
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="rounded-[24px] border border-black/10 bg-white/82 p-4">
                 <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Today To Future</div>
-                <h3 className="mt-1 text-lg font-semibold text-[#151811]">???????</h3>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">顺延今天的训练</h3>
                 <p className="mt-2 text-sm leading-6 text-black/54">
                   {todayBrief.rescheduledFromDate
-                    ? `???????? ${todayBrief.rescheduledFromDate} ??????????????????????`
-                    : "??????????????????"}
+                    ? `今天执行的是从 ${todayBrief.rescheduledFromDate} 调整过来的训练，当前日期不能再继续顺延。`
+                    : "把今天原定的训练调整到之后的某一天，今天会按恢复日处理。"}
                 </p>
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row">
                   <input
@@ -829,18 +829,18 @@ export function HomeDashboard({
                     onClick={() => submitTrainingReschedule(today, postponeDate)}
                     className="rounded-full bg-[#151811] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#23271d] disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isRescheduling ? "???..." : "????"}
+                    {isRescheduling ? "处理中..." : "确认顺延"}
                   </button>
                 </div>
               </div>
 
               <div className="rounded-[24px] border border-black/10 bg-white/82 p-4">
                 <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Past To Today</div>
-                <h3 className="mt-1 text-lg font-semibold text-[#151811]">???????</h3>
+                <h3 className="mt-1 text-lg font-semibold text-[#151811]">把漏训提到今天</h3>
                 <p className="mt-2 text-sm leading-6 text-black/54">
                   {missedTrainingEntries.length
-                    ? "???????????????????????"
-                    : "????????????????"}
+                    ? "从过去未完成的训练日里选一天，直接放到今天执行。"
+                    : "当前没有可提到今天执行的漏训日。"}
                 </p>
                 <div className="mt-4 flex flex-col gap-3">
                   <select
@@ -849,10 +849,10 @@ export function HomeDashboard({
                     disabled={isRescheduling || !missedTrainingEntries.length}
                     className="w-full rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3 text-sm text-[#151811] outline-none disabled:opacity-60"
                   >
-                    <option value="">??????</option>
+                    <option value="">选择一个漏训日</option>
                     {missedTrainingEntries.map((entry) => (
                       <option key={entry.date} value={entry.date}>
-                        {entry.date} ? {entry.label}
+                        {entry.date} - {entry.label}
                       </option>
                     ))}
                   </select>
@@ -862,7 +862,7 @@ export function HomeDashboard({
                     onClick={() => submitTrainingReschedule(selectedMissedDate, today)}
                     className="rounded-full bg-[#d5ff63] px-5 py-3 text-sm font-semibold text-[#151811] transition hover:bg-[#c2f24a] disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isRescheduling ? "???..." : "????"}
+                    {isRescheduling ? "处理中..." : "提到今天"}
                   </button>
                 </div>
               </div>

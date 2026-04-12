@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -8,7 +9,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  --font-sans: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
   --font-display: Bahnschrift, Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
 }
 
@@ -19,7 +20,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  font-family: "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
   min-height: 100vh;
 }
 

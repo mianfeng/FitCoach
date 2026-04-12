@@ -5,7 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "FitCoach",
-  description: "长期计划驱动的每日训练与饮食处方助手",
+  description: "长期计划驱动的每日训练与膳食处方助手",
   applicationName: "FitCoach",
 };
 

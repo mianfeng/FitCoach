@@ -10,11 +10,13 @@ export default async function PlanPage() {
   const repository = await getRepository();
   const planSetup = await repository.getPlanSetup();
   const reports = await repository.listSessionReports(120);
+  const trainingReschedules = await repository.listTrainingReschedules();
 
   return (
     <PlanEditor
       initialData={planSetup}
       recentReports={reports}
+      trainingReschedules={trainingReschedules}
       today={isoToday()}
       storageMode={hasSupabaseConfig() ? "supabase" : "mock"}
     />

@@ -59,6 +59,17 @@ export const planSetupSchema = z.object({
     startingIntensityPct: z.number().min(1).max(100).optional(),
     schedulePattern: schedulePatternSchema.optional(),
     planRevisionId: z.string().optional(),
+    baseCalendarEntries: z
+      .array(
+        z.object({
+          date: z.string(),
+          week: z.number().min(1),
+          dayIndex: z.number().min(1).max(7),
+          slot: planCalendarSlotSchema,
+          label: z.string().min(1),
+        }),
+      )
+      .optional(),
     calendarEntries: z
       .array(
         z.object({

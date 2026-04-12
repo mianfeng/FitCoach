@@ -54,6 +54,7 @@ export const defaultPlan: LongTermPlan = {
   durationWeeks: 8,
   startingIntensityPct: 70,
   schedulePattern: "3on1off",
+  baseCalendarEntries: [],
   calendarEntries: [],
   planRevisionId: "planrev-seed",
   splitType: "PPL",

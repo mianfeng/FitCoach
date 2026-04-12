@@ -5,13 +5,13 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { SectionCard } from "@/components/section-card";
 import { regenerateLinearPlan } from "@/lib/plan-generator";
-import { getScheduledDate } from "@/lib/training-reschedule";
-import type { DayCode, PlanCalendarEntry, PlanSetupInput, SessionReport } from "@/lib/types";
+import type { DayCode, PlanCalendarEntry, PlanSetupInput, SessionReport, TrainingReschedule } from "@/lib/types";
 import { formatDateLabel, uid } from "@/lib/utils";
 
 interface PlanEditorProps {
   initialData: PlanSetupInput;
   recentReports: SessionReport[];
+  trainingReschedules: TrainingReschedule[];
   today: string;
   storageMode: "mock" | "supabase";
 }
@@ -52,7 +52,7 @@ function getCalendarClass(status: "today" | "done" | "pending", isRest: boolean)
   return "border-[#e4d7a7] bg-[#fff5d6] text-[#151811]";
 }
 
-export function PlanEditor({ initialData, recentReports, today, storageMode }: PlanEditorProps) {
+export function PlanEditor({ initialData, recentReports, trainingReschedules, today, storageMode }: PlanEditorProps) {
   const [form, setForm] = useState(initialData);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [needsRegeneration, setNeedsRegeneration] = useState(false);
@@ -63,7 +63,14 @@ export function PlanEditor({ initialData, recentReports, today, storageMode }: P
   );
   const [isPending, startTransition] = useTransition();
 
-  const reportDates = useMemo(() => new Set(recentReports.map((report) => getScheduledDate(report))), [recentReports]);
+  const reportDates = useMemo(() => new Set(recentReports.map((report) => report.date)), [recentReports]);
+  const rescheduleMarkers = useMemo(
+    () => ({
+      sourceDates: new Map(trainingReschedules.map((item) => [item.sourceDate, item])),
+      targetDates: new Map(trainingReschedules.map((item) => [item.targetDate, item])),
+    }),
+    [trainingReschedules],
+  );
   const groupedWeeks = useMemo(() => groupByWeek(form.plan.calendarEntries), [form.plan.calendarEntries]);
   const visibleWeek = groupedWeeks.find(([week]) => week === selectedWeek) ?? groupedWeeks[0];
 
@@ -319,17 +326,37 @@ export function PlanEditor({ initialData, recentReports, today, storageMode }: P
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
               {visibleWeek[1].map((entry) => {
                 const status = getCalendarStatus(entry, reportDates, today);
+                const sourceReschedule = rescheduleMarkers.sourceDates.get(entry.date);
+                const targetReschedule = rescheduleMarkers.targetDates.get(entry.date);
                 const clickable = entry.date <= today;
                 const className = `rounded-[18px] border px-3 py-3 transition ${getCalendarClass(status, entry.slot === "rest")}`;
-                return clickable ? (
-                  <Link key={entry.date} href={`/?date=${entry.date}`} className={className}>
+                const cellBody = (
+                  <>
                     <div className="text-[11px] uppercase tracking-[0.2em]">{formatDateLabel(entry.date)}</div>
                     <div className="mt-2 text-sm font-semibold">{entry.label}</div>
+                    {sourceReschedule || targetReschedule ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {sourceReschedule ? (
+                          <span className="rounded-full bg-black/10 px-2 py-1 text-[10px] font-medium text-[#151811]">
+                            顺延出
+                          </span>
+                        ) : null}
+                        {targetReschedule ? (
+                          <span className="rounded-full bg-black/10 px-2 py-1 text-[10px] font-medium text-[#151811]">
+                            调入
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </>
+                );
+                return clickable ? (
+                  <Link key={entry.date} href={`/?date=${entry.date}`} className={className}>
+                    {cellBody}
                   </Link>
                 ) : (
                   <div key={entry.date} className={className}>
-                    <div className="text-[11px] uppercase tracking-[0.2em]">{formatDateLabel(entry.date)}</div>
-                    <div className="mt-2 text-sm font-semibold">{entry.label}</div>
+                    {cellBody}
                   </div>
                 );
               })}

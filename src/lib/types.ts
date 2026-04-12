@@ -92,6 +92,7 @@ export interface LongTermPlan {
   durationWeeks: number;
   startingIntensityPct: number;
   schedulePattern: SchedulePattern;
+  baseCalendarEntries: PlanCalendarEntry[];
   calendarEntries: PlanCalendarEntry[];
   planRevisionId: string;
   splitType: "PPL";

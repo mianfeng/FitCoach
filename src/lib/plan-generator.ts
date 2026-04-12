@@ -8,6 +8,7 @@ import type {
   WeeklyPhase,
   WorkoutTemplate,
 } from "@/lib/types";
+import { reindexCalendarEntries } from "@/lib/plan-calendar";
 import { applyCurrentTemplateLayout } from "@/lib/template-layout";
 import { clamp, roundToIncrement, shiftIsoDate, uid } from "@/lib/utils";
 
@@ -221,10 +222,16 @@ export function normalizePlanSetupInput(input: PlanSetupInput): PlanSetupInput {
     input.plan.startingIntensityPct ?? Math.round((input.plan.progressionRule.weeklyPhases[0]?.intensity ?? 0.7) * 100);
   const weeklyPhases = buildWeeklyPhases(durationWeeks, startingIntensityPct);
   const expectedCalendarLength = durationWeeks * 7;
-  const calendarEntries =
-    input.plan.calendarEntries?.length === expectedCalendarLength
-      ? input.plan.calendarEntries
-      : buildCalendarEntries(input.plan.startDate, durationWeeks);
+  const generatedBaseCalendarEntries = buildCalendarEntries(input.plan.startDate, durationWeeks);
+  const baseCalendarEntries =
+    input.plan.baseCalendarEntries?.length === expectedCalendarLength
+      ? reindexCalendarEntries(input.plan.baseCalendarEntries)
+      : input.plan.calendarEntries?.length === expectedCalendarLength
+        ? reindexCalendarEntries(input.plan.calendarEntries)
+        : generatedBaseCalendarEntries;
+  const calendarEntries = input.plan.calendarEntries?.length
+    ? reindexCalendarEntries(input.plan.calendarEntries)
+    : baseCalendarEntries;
   const nextInput: PlanSetupInput = {
     ...input,
     profile: {
@@ -238,6 +245,7 @@ export function normalizePlanSetupInput(input: PlanSetupInput): PlanSetupInput {
       startingIntensityPct,
       schedulePattern: input.plan.schedulePattern ?? "3on1off",
       planRevisionId: input.plan.planRevisionId ?? uid("planrev"),
+      baseCalendarEntries,
       calendarEntries,
       progressionRule: {
         ...input.plan.progressionRule,
@@ -277,6 +285,7 @@ export function regenerateLinearPlan(input: PlanSetupInput): PlanSetupInput {
     plan: {
       ...normalized.plan,
       goal: `${normalized.profile.currentWeightKg}kg -> ${normalized.profile.targetWeightKg}kg ${normalized.plan.phase === "lean_bulk" ? "Lean Bulk" : normalized.plan.phase}`,
+      baseCalendarEntries: calendarEntries,
       calendarEntries,
       progressionRule: {
         ...normalized.plan.progressionRule,

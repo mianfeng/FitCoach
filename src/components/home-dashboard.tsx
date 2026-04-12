@@ -772,13 +772,14 @@ export function HomeDashboard({
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row">
                   <input
                     type="date"
+                    min={shiftIsoDate(activeReschedule.sourceDate, 1)}
                     value={postponeDate}
                     onChange={(event) => setPostponeDate(event.target.value)}
                     className="w-full rounded-[16px] border border-black/10 bg-[#faf7ef] px-3 py-3 text-sm text-[#151811] outline-none"
                   />
                   <button
                     type="button"
-                    disabled={isRescheduling || !postponeDate || postponeDate === activeReschedule.sourceDate}
+                    disabled={isRescheduling || !postponeDate || postponeDate <= activeReschedule.sourceDate}
                     onClick={() => updateTrainingReschedule(activeReschedule.id, postponeDate)}
                     className="rounded-full bg-[#151811] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#23271d] disabled:cursor-not-allowed disabled:opacity-60"
                   >

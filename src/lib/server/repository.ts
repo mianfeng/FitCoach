@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+import { materializePlanCalendar } from "@/lib/plan-calendar";
 import { buildEmptyDashboardSeed, buildDefaultPlanSetup } from "@/lib/seed";
 import { buildPlanSnapshots, mergePlanSnapshotsFromDate, normalizePlanSetupInput } from "@/lib/plan-generator";
 import { buildMealLogForSubmit, createEmptyMealLog, mealSlotOrder, normalizeStoredSessionReport } from "@/lib/session-report";
@@ -153,7 +154,10 @@ type MockStore = DashboardSnapshot & {
 export interface Repository {
   getDashboardSnapshot(): Promise<DashboardSnapshot>;
   getPlanSetup(): Promise<PlanSetupInput>;
-  savePlanSetup(input: PlanSetupInput): Promise<PlanSetupInput>;
+  savePlanSetup(
+    input: PlanSetupInput,
+    options?: { preserveTrainingReschedules?: boolean },
+  ): Promise<PlanSetupInput>;
   listNutritionDishes(): Promise<NutritionDish[]>;
   upsertNutritionDish(input: NutritionDish): Promise<NutritionDish>;
   deleteNutritionDish(id: string): Promise<void>;
@@ -207,6 +211,18 @@ function sortByDateAndCreatedAtDesc<T extends { date: string; createdAt?: string
 
     return (right.createdAt ?? "").localeCompare(left.createdAt ?? "");
   });
+}
+
+function materializePlanSetupWithReschedules(input: PlanSetupInput, reschedules: TrainingReschedule[]) {
+  const normalized = normalizePlanSetupInput(input);
+
+  return {
+    ...normalized,
+    plan: {
+      ...normalized.plan,
+      calendarEntries: materializePlanCalendar(normalized.plan.baseCalendarEntries, reschedules),
+    },
+  } satisfies PlanSetupInput;
 }
 
 function dedupeByDate<T extends { date: string; createdAt?: string }>(items: T[]) {
@@ -429,12 +445,12 @@ function createMockRepository(): Repository {
     async getDashboardSnapshot() {
       const store = await getMockStore();
       const today = isoToday();
-      const normalized = normalizePlanSetupInput({
+      const normalized = materializePlanSetupWithReschedules({
         profile: store.profile,
         persona: store.persona,
         plan: store.plan,
         templates: store.templates,
-      });
+      }, store.trainingReschedules);
       store.profile = normalized.profile;
       store.persona = normalized.persona;
       store.plan = normalized.plan;
@@ -463,22 +479,31 @@ function createMockRepository(): Repository {
     },
     async getPlanSetup() {
       const store = await getMockStore();
-      const normalized = normalizePlanSetupInput({
+      const normalized = materializePlanSetupWithReschedules({
         profile: store.profile,
         persona: store.persona,
         plan: store.plan,
         templates: store.templates,
-      });
+      }, store.trainingReschedules);
       store.profile = normalized.profile;
       store.persona = normalized.persona;
       store.plan = normalized.plan;
       store.templates = normalized.templates;
       return normalized;
     },
-    async savePlanSetup(input) {
+    async savePlanSetup(input, options = {}) {
       const store = await getMockStore();
       const today = isoToday();
-      const normalized = normalizePlanSetupInput(input);
+      const nextInput = options.preserveTrainingReschedules
+        ? input
+        : {
+            ...input,
+            plan: {
+              ...input.plan,
+              baseCalendarEntries: input.plan.calendarEntries,
+            },
+          };
+      const normalized = normalizePlanSetupInput(nextInput);
       const finalized = {
         ...normalized,
         profile: {
@@ -494,6 +519,9 @@ function createMockRepository(): Repository {
       store.persona = finalized.persona;
       store.plan = finalized.plan;
       store.templates = finalized.templates;
+      if (!options.preserveTrainingReschedules) {
+        store.trainingReschedules = [];
+      }
       store.planSnapshots = mergePlanSnapshotsFromDate(
         store.planSnapshots,
         buildPlanSnapshots(finalized),
@@ -723,12 +751,17 @@ function createSupabaseRepository(): Repository {
     async getDashboardSnapshot() {
       await ensureKnowledgeSeeded(supabase);
       const coachState = await ensureCoachState(supabase);
-      const normalized = normalizePlanSetupInput({
+      const { data: trainingRescheduleRows } = await supabase
+        .from("training_reschedules")
+        .select("*")
+        .order("created_at", { ascending: true })
+        .returns<TrainingRescheduleRow[]>();
+      const normalized = materializePlanSetupWithReschedules({
         profile: coachState.profile,
         persona: coachState.persona,
         plan: coachState.active_plan,
         templates: coachState.workout_templates,
-      });
+      }, (trainingRescheduleRows ?? []).map((row) => normalizeTrainingRescheduleRow(row)));
       const [
         { data: briefRows },
         { data: reportRows },
@@ -771,16 +804,30 @@ function createSupabaseRepository(): Repository {
     },
     async getPlanSetup() {
       const coachState = await ensureCoachState(supabase);
-      return normalizePlanSetupInput({
+      const { data } = await supabase
+        .from("training_reschedules")
+        .select("*")
+        .order("created_at", { ascending: true })
+        .returns<TrainingRescheduleRow[]>();
+      return materializePlanSetupWithReschedules({
         profile: coachState.profile,
         persona: coachState.persona,
         plan: coachState.active_plan,
         templates: coachState.workout_templates,
-      });
+      }, (data ?? []).map((row) => normalizeTrainingRescheduleRow(row)));
     },
-    async savePlanSetup(input) {
+    async savePlanSetup(input, options = {}) {
       const today = isoToday();
-      const normalized = normalizePlanSetupInput(input);
+      const nextInput = options.preserveTrainingReschedules
+        ? input
+        : {
+            ...input,
+            plan: {
+              ...input.plan,
+              baseCalendarEntries: input.plan.calendarEntries,
+            },
+          };
+      const normalized = normalizePlanSetupInput(nextInput);
       const nextPlan = {
         ...normalized.plan,
         planRevisionId: `planrev-${Date.now()}`,
@@ -802,6 +849,12 @@ function createSupabaseRepository(): Repository {
       });
       if (error) {
         throw error;
+      }
+      if (!options.preserveTrainingReschedules) {
+        const { error: rescheduleDeleteError } = await supabase.from("training_reschedules").delete().neq("id", "");
+        if (rescheduleDeleteError) {
+          throw rescheduleDeleteError;
+        }
       }
       const { data: existingSnapshotRows } = await supabase
         .from("plan_snapshots")

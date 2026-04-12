@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 import {
   buildDailyBriefFromSnapshot,
   buildNextDayDecision,
-  buildRescheduledOutBrief,
   buildStrictDailyReviewMarkdown,
   buildTodayAutofillBrief,
   rebaseDailyBriefToDate,
@@ -12,7 +11,7 @@ import {
 import { computeMealLogNutritionWithGemini, generateGeminiDailyReview } from "@/lib/server/gemini";
 import { createEmptyMealLog, deriveDietAdherence, normalizeMealLog } from "@/lib/session-report";
 import { getRepository } from "@/lib/server/repository";
-import { findInboundReschedule, findOutboundReschedule, findReportForDate } from "@/lib/training-reschedule";
+import { findInboundReschedule } from "@/lib/training-reschedule";
 import { uid } from "@/lib/utils";
 import { sessionReportSchema } from "@/lib/validations";
 
@@ -36,41 +35,16 @@ export async function POST(request: Request) {
     const reschedules = await repository.listTrainingReschedules();
     const planSnapshot = await repository.findPlanSnapshotByDate(parsed.date);
     const inboundReschedule = findInboundReschedule(reschedules, parsed.date);
-    const outboundReschedule = findOutboundReschedule(reschedules, parsed.date);
-    const existingReport = findReportForDate(reports, parsed.date);
-    const inboundSnapshot = inboundReschedule
-      ? await repository.findPlanSnapshotByDate(inboundReschedule.sourceDate)
-      : null;
-    const reviewBrief = inboundReschedule
-      ? rebaseDailyBriefToDate(
-          inboundSnapshot
-            ? buildDailyBriefFromSnapshot(inboundSnapshot)
-            : buildTodayAutofillBrief(
-                inboundReschedule.sourceDate,
-                snapshot.profile,
-                snapshot.plan,
-                snapshot.templates,
-                reports,
-              ),
+    const baseBrief = planSnapshot
+      ? buildDailyBriefFromSnapshot(planSnapshot)
+      : buildTodayAutofillBrief(
           parsed.date,
-          inboundReschedule,
-        )
-      : outboundReschedule && !existingReport
-        ? buildRescheduledOutBrief({
-            date: parsed.date,
-            targetDate: outboundReschedule.targetDate,
-            profile: snapshot.profile,
-            plan: snapshot.plan,
-          })
-        : planSnapshot
-          ? buildDailyBriefFromSnapshot(planSnapshot)
-          : buildTodayAutofillBrief(
-              parsed.date,
-              snapshot.profile,
-              snapshot.plan,
-              snapshot.templates,
-              reports,
-            );
+          snapshot.profile,
+          snapshot.plan,
+          snapshot.templates,
+          reports,
+        );
+    const reviewBrief = inboundReschedule ? rebaseDailyBriefToDate(baseBrief, parsed.date, inboundReschedule) : baseBrief;
     const targetNutrition = {
       calories:
         reviewBrief.mealPrescription.macros.proteinG * 4 +

@@ -4,7 +4,7 @@ import { shiftIsoDate } from "@/lib/utils";
 const calendarCycle: PlanCalendarSlot[] = ["A", "B", "C", "rest"];
 
 function getCalendarLabelSuffix(slot: PlanCalendarSlot) {
-  return slot === "rest" ? "浼?" : slot;
+  return slot === "rest" ? "休" : slot;
 }
 
 function toCalendarEntry(date: string, index: number, slot: PlanCalendarSlot): PlanCalendarEntry {

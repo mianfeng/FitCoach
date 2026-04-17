@@ -134,6 +134,23 @@ function formatSuggestedWeightLabel(weight?: number) {
   return weight != null ? `建议 ${weight} kg` : "重量自定";
 }
 
+function toDishCalories(proteinG: number, carbsG: number, fatsG: number) {
+  return Math.round((proteinG * 4 + carbsG * 4 + fatsG * 9) * 10) / 10;
+}
+
+function appendQuickDish(content: string, dishName: string) {
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return dishName;
+  }
+
+  if (/[，,、/+]$/.test(trimmed)) {
+    return `${trimmed}${dishName}`;
+  }
+
+  return `${trimmed}，${dishName}`;
+}
+
 function buildDefaultExerciseResults(brief: DailyBrief) {
   if (brief.isRestDay) {
     return [] as ExerciseResult[];
@@ -411,6 +428,7 @@ export function HomeDashboard({
     today,
   });
   const hasMealContent = MEAL_SLOTS.some((slot) => reportDraft.mealLog[slot.key].content.trim().length > 0);
+  const quickNutritionDishes = snapshot.nutritionDishes.slice(0, 8);
   const hasReadyNutrition =
     !mealLogDirty &&
     existingReport?.nutritionComputation?.status === "ready" &&
@@ -1489,6 +1507,37 @@ export function HomeDashboard({
                       className="mt-3 w-full rounded-[14px] border border-black/10 bg-white px-3 py-2.5 text-sm leading-6 outline-none disabled:opacity-50"
                       placeholder={`输入${field.label}，例如：鸡排饭 100g鸡排 250g米饭 1勺蛋白粉30g（空格或逗号分隔都可）`}
                     />
+
+                    {quickNutritionDishes.length ? (
+                      <div className="mt-3 rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Quick Add</div>
+                          <div className="text-[11px] text-black/48">点击常吃菜品，自动追加到当前餐次</div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {quickNutritionDishes.map((dish) => (
+                            <button
+                              key={`${field.key}-${dish.id}`}
+                              type="button"
+                              onClick={() =>
+                                updateMeal(field.key, {
+                                  content: appendQuickDish(currentEntry.content, dish.name),
+                                  adherence: "on_plan",
+                                  deviationNote: "",
+                                })
+                              }
+                              disabled={isMirroredPostWorkout}
+                              className="rounded-full border border-black/10 bg-[#f7f3e8] px-3 py-2 text-left text-xs transition hover:bg-[#efe8d4] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <span className="font-semibold text-[#151811]">{dish.name}</span>
+                              <span className="ml-2 text-black/48">
+                                {toDishCalories(dish.macros.proteinG, dish.macros.carbsG, dish.macros.fatsG)} kcal
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
 
                     <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                       <label className="block rounded-[14px] border border-black/10 bg-white px-3 py-3">

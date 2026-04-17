@@ -11,7 +11,10 @@ import {
   countFilledMealSlots,
   createEmptyMealLog,
   mealCookingMethodLabels,
+  type MealSlot,
   mealSlotLabels,
+  normalizeMealLog,
+  resolvePostWorkoutEntry,
 } from "@/lib/session-report";
 import { shiftIsoDate } from "@/lib/utils";
 import type {
@@ -149,6 +152,39 @@ function appendQuickDish(content: string, dishName: string) {
   }
 
   return `${trimmed}，${dishName}`;
+}
+
+function getMealContentForSlot(mealLog: MealLog, slot: MealSlot) {
+  return (slot === "postWorkout" ? resolvePostWorkoutEntry(mealLog) : mealLog[slot]).content.trim();
+}
+
+function buildRecentMealSuggestions(reports: SessionReport[], slot: MealSlot, excludeDate: string, limit = 3) {
+  const seen = new Set<string>();
+  const suggestions: Array<{ content: string; date: string }> = [];
+
+  for (const report of reports) {
+    if (report.date === excludeDate) {
+      continue;
+    }
+
+    const mealLog = normalizeMealLog(report.mealLog);
+    if (!mealLog) {
+      continue;
+    }
+
+    const content = getMealContentForSlot(mealLog, slot);
+    if (!content || seen.has(content)) {
+      continue;
+    }
+
+    seen.add(content);
+    suggestions.push({ content, date: report.date });
+    if (suggestions.length >= limit) {
+      break;
+    }
+  }
+
+  return suggestions;
 }
 
 function buildDefaultExerciseResults(brief: DailyBrief) {
@@ -429,6 +465,13 @@ export function HomeDashboard({
   });
   const hasMealContent = MEAL_SLOTS.some((slot) => reportDraft.mealLog[slot.key].content.trim().length > 0);
   const quickNutritionDishes = snapshot.nutritionDishes.slice(0, 8);
+  const recentMealSuggestions: Record<MealSlot, Array<{ content: string; date: string }>> = {
+    breakfast: buildRecentMealSuggestions(reportHistory, "breakfast", today),
+    lunch: buildRecentMealSuggestions(reportHistory, "lunch", today),
+    dinner: buildRecentMealSuggestions(reportHistory, "dinner", today),
+    preWorkout: buildRecentMealSuggestions(reportHistory, "preWorkout", today),
+    postWorkout: buildRecentMealSuggestions(reportHistory, "postWorkout", today),
+  };
   const hasReadyNutrition =
     !mealLogDirty &&
     existingReport?.nutritionComputation?.status === "ready" &&
@@ -1472,6 +1515,7 @@ export function HomeDashboard({
                 const effectiveRinseOil =
                   currentEntry.rinseOil === true ||
                   (currentEntry.rinseOil == null && detectRinseOilFromText(currentEntry.content));
+                const recentSuggestions = recentMealSuggestions[field.key];
 
                 return (
                   <label key={field.key} className="block rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4">
@@ -1493,6 +1537,40 @@ export function HomeDashboard({
                         ) : null}
                       </div>
                     </div>
+
+                    {recentSuggestions.length ? (
+                      <div className="mt-3 rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Recent {field.label}</div>
+                          <div className="text-[11px] text-black/48">点击一条，直接覆盖当前餐次</div>
+                        </div>
+                        <div className="mt-3 grid gap-2">
+                          {recentSuggestions.map((suggestion) => (
+                            <button
+                              key={`${field.key}-${suggestion.date}-${suggestion.content}`}
+                              type="button"
+                              onClick={() =>
+                                updateMeal(field.key, {
+                                  content: suggestion.content,
+                                  adherence: "on_plan",
+                                  deviationNote: "",
+                                })
+                              }
+                              disabled={isMirroredPostWorkout}
+                              className="rounded-[14px] border border-black/10 bg-[#fbf8f1] px-3 py-3 text-left transition hover:border-black/18 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-[10px] uppercase tracking-[0.2em] text-black/42">{suggestion.date}</span>
+                                <span className="rounded-full bg-[#151811] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/78">
+                                  Reuse
+                                </span>
+                              </div>
+                              <div className="mt-2 text-sm leading-6 text-[#151811]">{suggestion.content}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
 
                     <input
                       value={currentEntry.content}

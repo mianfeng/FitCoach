@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { type ReactNode, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { SectionCard } from "@/components/section-card";
@@ -79,6 +79,8 @@ type CoachChatResponse = {
   basis: ChatMessage["basis"];
   contextSummary: string;
 };
+
+type ReportFlowStep = "training" | "nutrition" | "recovery";
 
 const REPORT_FEEDBACK_KEY = "fitcoach:report-feedback";
 
@@ -276,6 +278,73 @@ function buildInitialCoachReply(snapshot: DashboardSnapshot, existingReport?: Se
   };
 }
 
+function getFlowStatusClass(tone: "pending" | "active" | "ready") {
+  if (tone === "ready") {
+    return "border-[#b5d56b] bg-[#eff8d4] text-[#1d2612]";
+  }
+  if (tone === "active") {
+    return "border-[#d5ff63]/40 bg-[#d5ff63] text-[#151811]";
+  }
+  return "border-black/10 bg-[#f7f3e8] text-black/56";
+}
+
+interface ReportFlowCardProps {
+  step: string;
+  title: string;
+  summary: string;
+  status: string;
+  tone: "pending" | "active" | "ready";
+  active: boolean;
+  onSelect: () => void;
+  children: ReactNode;
+}
+
+function ReportFlowCard({
+  step,
+  title,
+  summary,
+  status,
+  tone,
+  active,
+  onSelect,
+  children,
+}: ReportFlowCardProps) {
+  return (
+    <section
+      className={`overflow-hidden rounded-[26px] border transition ${
+        active ? "border-[#151811] bg-white shadow-[0_24px_60px_rgba(18,22,16,0.12)]" : "border-black/10 bg-white/82"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex w-full items-start justify-between gap-4 px-4 py-4 text-left sm:px-5 sm:py-5"
+        aria-expanded={active}
+      >
+        <div className="min-w-0">
+          <div className="text-[11px] uppercase tracking-[0.26em] text-black/42">{step}</div>
+          <h3 className="mt-2 text-lg font-semibold text-[#151811]">{title}</h3>
+          <p className="mt-2 text-sm leading-6 text-black/56">{summary}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] ${getFlowStatusClass(
+              tone,
+            )}`}
+          >
+            {status}
+          </span>
+          <span className="rounded-full border border-black/10 bg-white px-2.5 py-1 text-xs text-black/48">
+            {active ? "收起" : "展开"}
+          </span>
+        </div>
+      </button>
+
+      {active ? <div className="border-t border-black/8 px-4 py-4 sm:px-5 sm:py-5">{children}</div> : null}
+    </section>
+  );
+}
+
 interface HomeDashboardProps {
   snapshot: DashboardSnapshot;
   today: string;
@@ -315,6 +384,7 @@ export function HomeDashboard({
   const [mealLogDirty, setMealLogDirty] = useState(false);
   const [postponeDate, setPostponeDate] = useState(() => shiftIsoDate(today, 1));
   const [selectedMissedDate, setSelectedMissedDate] = useState("");
+  const [activeFlowStep, setActiveFlowStep] = useState<ReportFlowStep>("training");
   const isSubmitting = submissionMode !== null;
   const setIsSubmitting = (value: boolean) => setSubmissionMode(value ? "completed" : null);
   const inboundReschedule = findInboundReschedule(trainingReschedules, today);
@@ -338,6 +408,41 @@ export function HomeDashboard({
       : existingReport?.nutritionWarnings?.[0] ?? "Nutrition is pending AI computation. Please retry save later."
     : "After entering meals, save draft or submit to trigger AI computation.";
   const previewMealLog = reportDraft.mealLog;
+  const exerciseTargetCount = todayBrief.workoutPrescription.exercises.length;
+  const loggedExerciseCount = reportDraft.exerciseResults.filter(
+    (exercise) =>
+      exercise.actualSets > 0 ||
+      exercise.topSetWeightKg != null ||
+      exercise.performed !== false ||
+      (exercise.notes?.trim().length ?? 0) > 0,
+  ).length;
+  const filledMealCount = countFilledMealSlots(reportDraft.mealLog);
+  const recoveryNoteCount = [reportDraft.painNotes, reportDraft.recoveryNote, reportDraft.trainingReportText].filter(
+    (item) => item.trim().length > 0,
+  ).length;
+  const recoverySignalsTouched =
+    reportDraft.bodyWeightKg !== snapshot.profile.currentWeightKg ||
+    reportDraft.sleepHours !== snapshot.profile.sleepTargetHours ||
+    reportDraft.fatigue !== 5 ||
+    recoveryNoteCount > 0;
+  const trainingSummary = todayBrief.isRestDay
+    ? "今天是恢复日，动作记录会自动跳过，重点放在饮食和恢复。"
+    : loggedExerciseCount
+      ? `已记录 ${loggedExerciseCount}/${exerciseTargetCount} 个动作，继续补齐今天的真实执行。`
+      : "先从今天实际完成的动作开始填写，按真实执行情况记录即可。";
+  const nutritionSummary = filledMealCount
+    ? hasReadyNutrition
+      ? `已填写 ${filledMealCount}/5 个餐次，营养估算已可查看。`
+      : `已填写 ${filledMealCount}/5 个餐次，保存草稿或提交后会重新计算营养。`
+    : "先填写今天已经吃掉的餐次，剩余餐次可以晚些补录。";
+  const recoverySummary = recoverySignalsTouched
+    ? recoveryNoteCount
+      ? `基础恢复信号已就绪，另有 ${recoveryNoteCount} 条补充备注。`
+      : "体重、睡眠和疲劳基线已就绪，可以补充异常或时间错位说明。"
+    : "补充恢复感受、疼痛或时间错位，会让点评更准确。";
+  const actionSummary = todayBrief.isRestDay
+    ? `恢复日记录 · 餐次 ${filledMealCount}/5 · 补充备注 ${recoveryNoteCount}`
+    : `动作 ${loggedExerciseCount}/${exerciseTargetCount} · 餐次 ${filledMealCount}/5 · 恢复备注 ${recoveryNoteCount}`;
 
   useEffect(() => {
     const report = findReportForDate(reportHistory, today);
@@ -381,6 +486,10 @@ export function HomeDashboard({
       window.sessionStorage.removeItem(REPORT_FEEDBACK_KEY);
     }
   }, [snapshot.plan.goal, today, todayBrief.id]);
+
+  useEffect(() => {
+    setActiveFlowStep("training");
+  }, [today]);
 
   function updateMeal(
     field: keyof Omit<MealLog, "postWorkoutSource">,
@@ -903,7 +1012,103 @@ export function HomeDashboard({
             </div>
           ) : null}
 
-          <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
+          <div className="rounded-[30px] bg-[#151811] p-4 text-white shadow-[0_24px_60px_rgba(18,22,16,0.16)] sm:p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.28em] text-white/42">Daily Report Flow</div>
+                <h3 className="mt-2 text-xl font-semibold text-white">一次只专注一个区块，减少来回滚动</h3>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-white/62">
+                  先记动作，再补餐次，最后补充恢复与备注。底部操作区会一直保留保存和提交入口。
+                </p>
+              </div>
+              <div className="rounded-full border border-white/10 bg-white/8 px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/74">
+                {actionSummary}
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              {[
+                {
+                  key: "training" as const,
+                  label: "Step 1",
+                  title: "动作执行",
+                  summary: trainingSummary,
+                  status: todayBrief.isRestDay
+                    ? "Rest day"
+                    : loggedExerciseCount >= exerciseTargetCount && exerciseTargetCount > 0
+                      ? "Ready"
+                      : loggedExerciseCount > 0
+                        ? "In progress"
+                        : "Pending",
+                },
+                {
+                  key: "nutrition" as const,
+                  label: "Step 2",
+                  title: "餐次记录",
+                  summary: nutritionSummary,
+                  status: hasReadyNutrition ? "Computed" : filledMealCount > 0 ? "In progress" : "Pending",
+                },
+                {
+                  key: "recovery" as const,
+                  label: "Step 3",
+                  title: "恢复与备注",
+                  summary: recoverySummary,
+                  status: recoverySignalsTouched ? "Updated" : "Baseline",
+                },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setActiveFlowStep(item.key)}
+                  className={`rounded-[22px] border px-4 py-4 text-left transition ${
+                    activeFlowStep === item.key ? "border-[#d5ff63]/45 bg-[#d5ff63] text-[#151811]" : "border-white/10 bg-white/6 text-white"
+                  }`}
+                >
+                  <div className={`text-[10px] uppercase tracking-[0.24em] ${activeFlowStep === item.key ? "text-[#151811]/56" : "text-white/42"}`}>
+                    {item.label}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <div className="text-lg font-semibold">{item.title}</div>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${
+                        activeFlowStep === item.key ? "bg-[#151811] text-white/78" : "bg-white/10 text-white/72"
+                      }`}
+                    >
+                      {item.status}
+                    </span>
+                  </div>
+                  <div className={`mt-2 text-sm leading-6 ${activeFlowStep === item.key ? "text-[#151811]/72" : "text-white/62"}`}>
+                    {item.summary}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <ReportFlowCard
+            step="Step 1"
+            title="动作执行"
+            summary={trainingSummary}
+            status={
+              todayBrief.isRestDay
+                ? "Rest day"
+                : loggedExerciseCount >= exerciseTargetCount && exerciseTargetCount > 0
+                  ? "Ready"
+                  : loggedExerciseCount > 0
+                    ? "In progress"
+                    : "Pending"
+            }
+            tone={
+              activeFlowStep === "training"
+                ? "active"
+                : todayBrief.isRestDay || (loggedExerciseCount >= exerciseTargetCount && exerciseTargetCount > 0)
+                  ? "ready"
+                  : "pending"
+            }
+            active={activeFlowStep === "training"}
+            onSelect={() => setActiveFlowStep("training")}
+          >
+            <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.28em] text-black/42">Workout Execution</div>
@@ -1029,9 +1234,28 @@ export function HomeDashboard({
                 </div>
               )}
             </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setActiveFlowStep("nutrition")}
+                className="rounded-full border border-black/10 bg-[#f7f3e8] px-4 py-2.5 text-sm font-semibold text-[#151811] transition hover:bg-[#efe8d4]"
+              >
+                下一步：餐次记录
+              </button>
+            </div>
           </div>
+          </ReportFlowCard>
 
-          <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
+          <ReportFlowCard
+            step="Step 2"
+            title="餐次记录"
+            summary={nutritionSummary}
+            status={hasReadyNutrition ? "Computed" : filledMealCount > 0 ? "In progress" : "Pending"}
+            tone={activeFlowStep === "nutrition" ? "active" : hasReadyNutrition ? "ready" : "pending"}
+            active={activeFlowStep === "nutrition"}
+            onSelect={() => setActiveFlowStep("nutrition")}
+          >
+            <div className="space-y-4">
             <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Meal Execution</div>
             <h3 className="mt-1 text-lg font-semibold text-[#151811]">餐次执行</h3>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -1233,8 +1457,35 @@ export function HomeDashboard({
                 );
               })}
             </div>
+            <div className="flex flex-wrap justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setActiveFlowStep("training")}
+                className="rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold text-[#151811] transition hover:bg-black/5"
+              >
+                返回：动作执行
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveFlowStep("recovery")}
+                className="rounded-full border border-black/10 bg-[#f7f3e8] px-4 py-2.5 text-sm font-semibold text-[#151811] transition hover:bg-[#efe8d4]"
+              >
+                下一步：恢复与备注
+              </button>
+            </div>
           </div>
+          </ReportFlowCard>
 
+          <ReportFlowCard
+            step="Step 3"
+            title="恢复与备注"
+            summary={recoverySummary}
+            status={recoverySignalsTouched ? "Updated" : "Baseline"}
+            tone={activeFlowStep === "recovery" ? "active" : recoverySignalsTouched ? "ready" : "pending"}
+            active={activeFlowStep === "recovery"}
+            onSelect={() => setActiveFlowStep("recovery")}
+          >
+            <div className="space-y-4">
           <div className="rounded-[26px] border border-black/10 bg-white/82 p-4 sm:p-5">
             <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Recovery Signals</div>
             <h3 className="mt-1 text-lg font-semibold text-[#151811]">恢复指标</h3>
@@ -1331,27 +1582,21 @@ export function HomeDashboard({
               placeholder="Add today's key notes, e.g. movement change, schedule shift, or recovery context."
             />
 
-            <button
-              type="button"
-              onClick={handleSaveDraft}
-              disabled={isSubmitting}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-full border border-black/10 bg-[#f7f3e8] px-5 py-3.5 text-sm font-semibold text-[#151811] transition hover:bg-[#efe8d4] disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {submissionMode === "draft" ? (
-                <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#151811]/25 border-t-[#151811]" />
-                  <span>Saving draft...</span>
-                </>
-              ) : (
-                "Save Draft"
-              )}
-            </button>
+            <div className="mt-4 flex justify-start">
+              <button
+                type="button"
+                onClick={() => setActiveFlowStep("nutrition")}
+                className="rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold text-[#151811] transition hover:bg-black/5"
+              >
+                返回：餐次记录
+              </button>
+            </div>
 
             <button
               type="button"
               onClick={handleSubmitReport}
               disabled={isSubmitting}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[#d5ff63] px-5 py-3.5 text-sm font-semibold text-[#151811] transition hover:bg-[#c2f24a] disabled:cursor-not-allowed disabled:opacity-70"
+              className="hidden"
             >
               {submissionMode === "completed" ? (
                 <>
@@ -1363,13 +1608,62 @@ export function HomeDashboard({
               )}
             </button>
           </div>
+            </div>
+          </ReportFlowCard>
+
+          <div className="sticky bottom-[calc(5.75rem+env(safe-area-inset-bottom))] z-30">
+            <div className="rounded-[26px] border border-black/10 bg-[rgba(255,252,245,0.95)] p-4 shadow-[0_22px_50px_rgba(18,22,16,0.18)] backdrop-blur">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-black/42">Submit Zone</div>
+                  <p className="mt-2 text-sm leading-6 text-black/58">
+                    {actionSummary}。可以先存草稿，等晚上补齐后再提交正式点评。
+                  </p>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[22rem]">
+                  <button
+                    type="button"
+                    onClick={handleSaveDraft}
+                    disabled={isSubmitting}
+                    className="flex items-center justify-center gap-2 rounded-full border border-black/10 bg-[#f7f3e8] px-5 py-3.5 text-sm font-semibold text-[#151811] transition hover:bg-[#efe8d4] disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {submissionMode === "draft" ? (
+                      <>
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#151811]/25 border-t-[#151811]" />
+                        <span>Saving draft...</span>
+                      </>
+                    ) : (
+                      "Save Draft"
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSubmitReport}
+                    disabled={isSubmitting}
+                    className="flex items-center justify-center gap-2 rounded-full bg-[#d5ff63] px-5 py-3.5 text-sm font-semibold text-[#151811] transition hover:bg-[#c2f24a] disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {submissionMode === "completed" ? (
+                      <>
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#151811]/25 border-t-[#151811]" />
+                        <span>提交中...</span>
+                      </>
+                    ) : (
+                      "提交今日汇报"
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </SectionCard>
 
       <SectionCard
-        eyebrow="Coach"
+        eyebrow="Support"
         title="Coach Q&A"
-        description="Ask training or nutrition questions here. Daily review will also appear in this panel."
+        description="日报主流程完成后，再来这里追问训练理论、替代动作或饮食策略会更顺手。"
       >
         <div className="space-y-4">
           <div className="hidden rounded-[26px] bg-[#151811] p-5 text-white shadow-[0_24px_60px_rgba(18,22,16,0.22)]">

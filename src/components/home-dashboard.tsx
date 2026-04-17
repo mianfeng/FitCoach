@@ -816,61 +816,67 @@ export function HomeDashboard({
         title={isHistorical ? "Historical Board" : "Today Board"}
         className="overflow-hidden"
       >
-        <div className="rounded-[30px] bg-[#151811] p-4 text-white shadow-[0_28px_80px_rgba(18,22,16,0.28)] sm:p-5">
-          <div className="rounded-[22px] border border-white/10 bg-white/6 p-4">
-            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-              <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-[0.28em] text-white/42">Training Day</div>
-                <div className="mt-3 space-y-2">
-                  <div className="inline-flex w-fit items-center rounded-full border border-white/10 bg-white/8 px-3 py-1.5 text-[11px] font-semibold text-white/76">
-                    {today}
+        <div className="rounded-[24px] bg-[#151811] p-3 text-white shadow-[0_22px_56px_rgba(18,22,16,0.24)] sm:p-4">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+            <div className="rounded-[18px] border border-white/10 bg-white/6 px-4 py-3.5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-[0.26em] text-white/42">Training Identity</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-white/10 bg-white/8 px-2.5 py-1 text-[11px] font-semibold text-white/76">
+                      {today}
+                    </span>
+                    <span className="rounded-full border border-[#d5ff63]/20 bg-[#d5ff63]/12 px-2.5 py-1 text-[11px] font-semibold text-[#dffb95]">
+                      {todayBrief.isRestDay ? "Rest Day" : `Day ${todayBrief.calendarSlot}`}
+                    </span>
                   </div>
-                  <span className="block font-display text-[38px] leading-none text-[#d5ff63] sm:text-[52px]">
-                    {todayBrief.calendarLabel}
-                  </span>
-                  <div className="space-y-1">
-                    <div className="break-words text-lg font-semibold text-white sm:text-2xl">
+                  <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-2">
+                    <span className="font-display text-[28px] leading-none text-[#d5ff63] sm:text-[34px]">
+                      {todayBrief.calendarLabel}
+                    </span>
+                    <span className="break-words text-sm font-semibold text-white/86 sm:text-base">
                       {todayBrief.workoutPrescription.title}
-                    </div>
-                    <div className="text-xs leading-5 text-white/58 sm:text-sm">
-                      {todayBrief.isRestDay
-                        ? "Rest-day nutrition and recovery"
-                        : `${todayBrief.calendarSlot} training · ${
-                            todayBrief.mealPrescription.dayType === "rest"
-                              ? "rest-day nutrition"
-                              : "training-day nutrition"
-                          }`}
-                    </div>
+                    </span>
                   </div>
                 </div>
               </div>
-              <div className="inline-flex w-fit items-center rounded-full border border-white/10 bg-white/6 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/76">
-                {todayBrief.isRestDay ? "Rest Day" : `Day ${todayBrief.calendarSlot}`}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-[18px] border border-white/10 bg-white/5 px-3.5 py-3">
+                <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">Meal Split</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {todayBrief.mealPrescription.meals.map((meal) => (
+                    <div
+                      key={meal.label}
+                      className="rounded-full border border-white/10 bg-black/10 px-3 py-1.5 text-xs text-white/78"
+                    >
+                      <span className="text-white/58">{meal.label}</span>
+                      <span className="ml-2 font-semibold text-white">{meal.sharePercent}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-[18px] border border-white/10 bg-white/5 px-3.5 py-3">
+                <div className="text-[10px] uppercase tracking-[0.24em] text-white/42">Macro Targets</div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {[
+                    { label: "C", value: `${todayBrief.mealPrescription.macros.carbsG}g` },
+                    { label: "P", value: `${todayBrief.mealPrescription.macros.proteinG}g` },
+                    { label: "F", value: `${todayBrief.mealPrescription.macros.fatsG}g` },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className="rounded-[14px] border border-white/10 bg-black/10 px-2 py-2.5 text-center"
+                    >
+                      <div className="text-[10px] uppercase tracking-[0.2em] text-white/42">{item.label}</div>
+                      <div className="mt-1 text-sm font-semibold text-white">{item.value}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {todayBrief.mealPrescription.meals.map((meal) => (
-              <div key={meal.label} className="rounded-[18px] border border-white/10 bg-white/5 px-3 py-3">
-                <div className="text-[10px] uppercase tracking-[0.22em] text-white/45">{meal.label}</div>
-                <div className="mt-1 text-lg font-semibold text-white sm:text-xl">{meal.sharePercent}%</div>
-                <div className="mt-1 text-[11px] leading-5 text-white/58">{meal.examples.join(" / ")}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {[
-              { label: "Carbs", value: `${todayBrief.mealPrescription.macros.carbsG}g` },
-              { label: "Protein", value: `${todayBrief.mealPrescription.macros.proteinG}g` },
-              { label: "Fats", value: `${todayBrief.mealPrescription.macros.fatsG}g` },
-            ].map((item) => (
-              <div key={item.label} className="rounded-[16px] border border-white/10 bg-black/10 px-2.5 py-3 text-center">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-white/45">{item.label}</div>
-                <div className="mt-1 text-sm font-semibold text-white">{item.value}</div>
-              </div>
-            ))}
           </div>
         </div>
       </SectionCard>

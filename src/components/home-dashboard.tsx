@@ -120,6 +120,20 @@ function formatGapValue(value: number, unit: string) {
   return `${sign}${value} ${unit}`;
 }
 
+function formatRestLabel(restSeconds: number) {
+  if (restSeconds >= 60) {
+    const minutes = restSeconds / 60;
+    const value = Number.isInteger(minutes) ? String(minutes) : minutes.toFixed(1);
+    return `${value} 分钟休息`;
+  }
+
+  return `${restSeconds} 秒休息`;
+}
+
+function formatSuggestedWeightLabel(weight?: number) {
+  return weight != null ? `建议 ${weight} kg` : "重量自定";
+}
+
 function buildDefaultExerciseResults(brief: DailyBrief) {
   if (brief.isRestDay) {
     return [] as ExerciseResult[];
@@ -1125,11 +1139,119 @@ export function HomeDashboard({
                 : "Fill each exercise with actual completion data for today's report."}
             </div>
 
+            {todayBrief.workoutPrescription.exercises.length ? (
+              <div className="rounded-[26px] border border-black/10 bg-[linear-gradient(135deg,#fffdf7_0%,#f3eddc_100%)] p-4 shadow-[0_16px_40px_rgba(25,21,14,0.08)] sm:p-5">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.24em] text-black/42">Today&apos;s Prescription</div>
+                    <h4 className="mt-2 text-xl font-semibold text-[#151811]">今日动作速览</h4>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-black/58">
+                      先快速确认今天每个动作的目标组次、建议重量和休息时间，再跳到下方录入真实执行。
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-black/10 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#151811]">
+                    {todayBrief.workoutPrescription.title}
+                  </div>
+                </div>
+
+                {todayBrief.workoutPrescription.warmup.length ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {todayBrief.workoutPrescription.warmup.map((item) => (
+                      <span
+                        key={item}
+                        className="rounded-full border border-black/10 bg-white/78 px-3 py-1.5 text-xs text-black/58"
+                      >
+                        热身 · {item}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                  {todayBrief.workoutPrescription.exercises.map((prescription, index) => {
+                    const draftExercise = reportDraft.exerciseResults[index];
+                    const isRecorded = (draftExercise?.actualSets ?? 0) > 0;
+                    const isSkipped = draftExercise?.performed === false;
+                    const statusLabel = isRecorded ? `已记录 ${draftExercise.actualSets} 组` : isSkipped ? "未开始" : "待填写";
+                    const statusClass = isRecorded
+                      ? "border-[#b5d56b] bg-[#eff8d4] text-[#314015]"
+                      : isSkipped
+                        ? "border-black/10 bg-white text-black/48"
+                        : "border-[#e5d6ae] bg-[#fff6df] text-[#6a541f]";
+
+                    return (
+                      <button
+                        key={`${prescription.name}-${index}`}
+                        type="button"
+                        onClick={() =>
+                          document.getElementById(`exercise-card-${index}`)?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "center",
+                          })
+                        }
+                        className="group rounded-[22px] border border-black/10 bg-white/88 p-4 text-left transition hover:-translate-y-0.5 hover:border-black/18 hover:shadow-[0_18px_38px_rgba(25,21,14,0.08)]"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[10px] uppercase tracking-[0.24em] text-black/38">Action {index + 1}</div>
+                            <div className="mt-2 text-base font-semibold text-[#151811]">{prescription.name}</div>
+                            <div className="mt-1 text-sm text-black/52">{prescription.focus}</div>
+                          </div>
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${statusClass}`}
+                          >
+                            {statusLabel}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <span className="rounded-full bg-[#151811] px-3 py-1.5 text-xs font-semibold text-white">
+                            {prescription.sets} 组 x {prescription.reps}
+                          </span>
+                          <span className="rounded-full border border-black/10 bg-[#f7f3e8] px-3 py-1.5 text-xs text-[#151811]">
+                            {formatSuggestedWeightLabel(prescription.suggestedWeightKg)}
+                          </span>
+                          <span className="rounded-full border border-black/10 bg-[#f7f3e8] px-3 py-1.5 text-xs text-[#151811]">
+                            {formatRestLabel(prescription.restSeconds)}
+                          </span>
+                        </div>
+
+                        {prescription.cues.length ? (
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {prescription.cues.slice(0, 2).map((cue) => (
+                              <span
+                                key={`${prescription.name}-${cue}`}
+                                className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs text-black/54"
+                              >
+                                {cue}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        <div className="mt-4 text-xs font-medium text-black/44 transition group-hover:text-black/60">
+                          {isRecorded
+                            ? `当前填写：${draftExercise.actualSets} 组，${draftExercise.actualReps || prescription.reps}`
+                            : "点击跳到下方执行录入"}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[11px] uppercase tracking-[0.24em] text-black/42">Execution Entry</div>
+              <div className="text-xs text-black/48">按速览顺序填写下方实际执行结果</div>
+            </div>
+
             <div className="mt-4 space-y-3">
               {todayBrief.workoutPrescription.exercises.length ? (
                 reportDraft.exerciseResults.map((exercise, index) => (
                   <article
                     key={exercise.exerciseName}
+                    id={`exercise-card-${index}`}
                     className="rounded-[20px] border border-black/10 bg-[#faf7ef] p-4"
                   >
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">

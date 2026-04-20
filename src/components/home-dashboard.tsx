@@ -1539,10 +1539,10 @@ export function HomeDashboard({
                     </div>
 
                     {recentSuggestions.length ? (
-                      <div className="mt-3 rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                      <div className="mt-3 rounded-[16px] border border-[#d8dee8] bg-[#f4f7fb] px-3 py-3">
                         <div className="flex items-center justify-between gap-3">
-                          <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Recent {field.label}</div>
-                          <div className="text-[11px] text-black/48">点击一条，直接覆盖当前餐次</div>
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-[#5f6b7d]">Recent {field.label}</div>
+                          <div className="text-[11px] text-[#7c8797]">点击一条，直接覆盖当前餐次</div>
                         </div>
                         <div className="mt-3 grid gap-2">
                           {recentSuggestions.map((suggestion) => (
@@ -1557,15 +1557,15 @@ export function HomeDashboard({
                                 })
                               }
                               disabled={isMirroredPostWorkout}
-                              className="rounded-[14px] border border-black/10 bg-[#fbf8f1] px-3 py-3 text-left transition hover:border-black/18 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-[14px] border border-[#d9e0eb] bg-[#eef3f8] px-3 py-3 text-left transition hover:border-[#b8c3d3] hover:bg-[#f8fbff] disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               <div className="flex items-center justify-between gap-3">
-                                <span className="text-[10px] uppercase tracking-[0.2em] text-black/42">{suggestion.date}</span>
-                                <span className="rounded-full bg-[#151811] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/78">
+                                <span className="text-[10px] uppercase tracking-[0.2em] text-[#6f7b8d]">{suggestion.date}</span>
+                                <span className="rounded-full border border-[#c6d1e0] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#435164]">
                                   Reuse
                                 </span>
                               </div>
-                              <div className="mt-2 text-sm leading-6 text-[#151811]">{suggestion.content}</div>
+                              <div className="mt-2 text-sm leading-6 text-[#344152]">{suggestion.content}</div>
                             </button>
                           ))}
                         </div>
@@ -1582,15 +1582,15 @@ export function HomeDashboard({
                         })
                       }
                       disabled={isMirroredPostWorkout}
-                      className="mt-3 w-full rounded-[14px] border border-black/10 bg-white px-3 py-2.5 text-sm leading-6 outline-none disabled:opacity-50"
+                      className="mt-3 w-full rounded-[14px] border-2 border-[#d5cfbf] bg-[#fffdf8] px-3 py-2.5 text-sm leading-6 text-[#151811] shadow-[0_8px_20px_rgba(86,70,24,0.06)] outline-none transition placeholder:text-black/34 focus:border-[#151811] focus:bg-white focus:ring-4 focus:ring-[#d5ff63]/20 disabled:opacity-50"
                       placeholder={`输入${field.label}，例如：鸡排饭 100g鸡排 250g米饭 1勺蛋白粉30g（空格或逗号分隔都可）`}
                     />
 
                     {quickNutritionDishes.length ? (
-                      <div className="mt-3 rounded-[16px] border border-black/10 bg-white px-3 py-3">
+                      <div className="mt-3 rounded-[16px] border border-[#e6dcc5] bg-[#fff8e8] px-3 py-3">
                         <div className="flex items-center justify-between gap-3">
-                          <div className="text-[10px] uppercase tracking-[0.2em] text-black/42">Quick Add</div>
-                          <div className="text-[11px] text-black/48">点击常吃菜品，自动追加到当前餐次</div>
+                          <div className="text-[10px] uppercase tracking-[0.2em] text-[#7a6332]">Quick Add</div>
+                          <div className="text-[11px] text-[#8a7852]">点击常吃菜品，自动追加到当前餐次</div>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {quickNutritionDishes.map((dish) => (
@@ -1605,10 +1605,10 @@ export function HomeDashboard({
                                 })
                               }
                               disabled={isMirroredPostWorkout}
-                              className="rounded-full border border-black/10 bg-[#f7f3e8] px-3 py-2 text-left text-xs transition hover:bg-[#efe8d4] disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-full border border-[#deceb0] bg-[#fffdf6] px-3 py-2 text-left text-xs transition hover:border-[#cdb07c] hover:bg-[#fff4cf] disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               <span className="font-semibold text-[#151811]">{dish.name}</span>
-                              <span className="ml-2 text-black/48">
+                              <span className="ml-2 text-[#7c6942]">
                                 {toDishCalories(dish.macros.proteinG, dish.macros.carbsG, dish.macros.fatsG)} kcal
                               </span>
                             </button>

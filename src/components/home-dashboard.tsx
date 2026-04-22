@@ -101,6 +101,8 @@ const MEAL_SLOTS: Array<{ key: keyof Omit<MealLog, "postWorkoutSource">; label: 
   { key: "postWorkout", label: "练后餐" },
 ];
 
+const REST_DAY_MEAL_SLOTS: MealSlot[] = ["breakfast", "lunch", "dinner"];
+
 const COOKING_METHOD_OPTIONS: Array<{ value: MealCookingMethod; label: string }> = [
   { value: "poached_steamed", label: mealCookingMethodLabels.poached_steamed },
   { value: "stir_fry_light", label: mealCookingMethodLabels.stir_fry_light },
@@ -185,6 +187,46 @@ function buildRecentMealSuggestions(reports: SessionReport[], slot: MealSlot, ex
   }
 
   return suggestions;
+}
+
+function getMealSlotTheme(slot: MealSlot) {
+  switch (slot) {
+    case "breakfast":
+      return {
+        card: "border-[#ead8ab] bg-[linear-gradient(135deg,#fff7de_0%,#fdf0cc_100%)]",
+        label: "bg-[#fff1c7] text-[#7b5a14]",
+        input: "border-[#dcc88f] bg-[#fffdf6] focus:border-[#7b5a14] focus:ring-[#ffe08a]/35",
+        helper: "text-[#8d7850]",
+      };
+    case "lunch":
+      return {
+        card: "border-[#c8dfc4] bg-[linear-gradient(135deg,#eef8e8_0%,#e1f0d7_100%)]",
+        label: "bg-[#dff1d2] text-[#355c2f]",
+        input: "border-[#a9c99c] bg-[#fbfff8] focus:border-[#355c2f] focus:ring-[#b9e4aa]/35",
+        helper: "text-[#5b7a55]",
+      };
+    case "dinner":
+      return {
+        card: "border-[#e6c8c0] bg-[linear-gradient(135deg,#fff0eb_0%,#f8e1d8_100%)]",
+        label: "bg-[#ffe2d8] text-[#7a4333]",
+        input: "border-[#dbb0a4] bg-[#fffaf8] focus:border-[#7a4333] focus:ring-[#f2c1b3]/35",
+        helper: "text-[#93655a]",
+      };
+    case "preWorkout":
+      return {
+        card: "border-[#c7d9ea] bg-[linear-gradient(135deg,#eef6ff_0%,#e0edf9_100%)]",
+        label: "bg-[#dfedff] text-[#35557b]",
+        input: "border-[#b2c8df] bg-[#fbfdff] focus:border-[#35557b] focus:ring-[#bdd7f3]/35",
+        helper: "text-[#607a98]",
+      };
+    case "postWorkout":
+      return {
+        card: "border-[#d5e2b4] bg-[linear-gradient(135deg,#f5fbe6_0%,#e9f4ca_100%)]",
+        label: "bg-[#e8f4c7] text-[#506b1d]",
+        input: "border-[#c5d89f] bg-[#fcfff7] focus:border-[#506b1d] focus:ring-[#d7ed9f]/35",
+        helper: "text-[#70824d]",
+      };
+  }
 }
 
 function buildDefaultExerciseResults(brief: DailyBrief) {
@@ -465,6 +507,9 @@ export function HomeDashboard({
   });
   const hasMealContent = MEAL_SLOTS.some((slot) => reportDraft.mealLog[slot.key].content.trim().length > 0);
   const quickNutritionDishes = snapshot.nutritionDishes.slice(0, 8);
+  const visibleMealSlots = todayBrief.isRestDay
+    ? MEAL_SLOTS.filter((slot) => REST_DAY_MEAL_SLOTS.includes(slot.key as MealSlot))
+    : MEAL_SLOTS;
   const recentMealSuggestions: Record<MealSlot, Array<{ content: string; date: string }>> = {
     breakfast: buildRecentMealSuggestions(reportHistory, "breakfast", today),
     lunch: buildRecentMealSuggestions(reportHistory, "lunch", today),
@@ -1447,22 +1492,24 @@ export function HomeDashboard({
             <div className="space-y-4">
             <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Meal Execution</div>
             <h3 className="mt-1 text-lg font-semibold text-[#151811]">餐次执行</h3>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {POST_WORKOUT_SOURCE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => updatePostWorkoutSource(option.value)}
-                  className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
-                    reportDraft.mealLog.postWorkoutSource === option.value
-                      ? "bg-[#151811] text-white"
-                      : "border border-black/10 bg-[#f7f3e8] text-[#151811]"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+            {!todayBrief.isRestDay ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {POST_WORKOUT_SOURCE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => updatePostWorkoutSource(option.value)}
+                    className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
+                      reportDraft.mealLog.postWorkoutSource === option.value
+                        ? "bg-[#151811] text-white"
+                        : "border border-black/10 bg-[#f7f3e8] text-[#151811]"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             <div className="mt-4 rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4">
               <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Nutrition Preview</div>
@@ -1499,7 +1546,7 @@ export function HomeDashboard({
             </div>
 
             <div className="mt-4 grid gap-3">
-              {MEAL_SLOTS.map((field) => {
+              {visibleMealSlots.map((field) => {
                 const isMirroredPostWorkout =
                   field.key === "postWorkout" && previewMealLog.postWorkoutSource !== "dedicated";
                 const linkedMeal =
@@ -1516,11 +1563,19 @@ export function HomeDashboard({
                   currentEntry.rinseOil === true ||
                   (currentEntry.rinseOil == null && detectRinseOilFromText(currentEntry.content));
                 const recentSuggestions = recentMealSuggestions[field.key];
+                const slotTheme = getMealSlotTheme(field.key);
 
                 return (
-                  <label key={field.key} className="block rounded-[20px] border border-black/10 bg-[#faf7ef] px-4 py-4">
+                  <label
+                    key={field.key}
+                    className={`block rounded-[20px] border px-4 py-4 shadow-[0_10px_30px_rgba(34,30,20,0.05)] ${slotTheme.card}`}
+                  >
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-[11px] uppercase tracking-[0.22em] text-black/42">{field.label}</span>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${slotTheme.label}`}
+                      >
+                        {field.label}
+                      </span>
                       <div className="flex flex-wrap gap-2">
                         {isLinkedSlot ? (
                           <span className="rounded-full bg-[#d5ff63] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#151811]">
@@ -1542,7 +1597,7 @@ export function HomeDashboard({
                       <div className="mt-3 rounded-[16px] border border-[#d8dee8] bg-[#f4f7fb] px-3 py-3">
                         <div className="flex items-center justify-between gap-3">
                           <div className="text-[10px] uppercase tracking-[0.2em] text-[#5f6b7d]">Recent {field.label}</div>
-                          <div className="text-[11px] text-[#7c8797]">点击一条，直接覆盖当前餐次</div>
+                          <div className={`text-[11px] ${slotTheme.helper}`}>点击一条，直接覆盖当前餐次</div>
                         </div>
                         <div className="mt-3 grid gap-2">
                           {recentSuggestions.map((suggestion) => (
@@ -1582,7 +1637,7 @@ export function HomeDashboard({
                         })
                       }
                       disabled={isMirroredPostWorkout}
-                      className="mt-3 w-full rounded-[14px] border-2 border-[#d5cfbf] bg-[#fffdf8] px-3 py-2.5 text-sm leading-6 text-[#151811] shadow-[0_8px_20px_rgba(86,70,24,0.06)] outline-none transition placeholder:text-black/34 focus:border-[#151811] focus:bg-white focus:ring-4 focus:ring-[#d5ff63]/20 disabled:opacity-50"
+                      className={`mt-3 w-full rounded-[14px] border-2 px-3 py-2.5 text-sm leading-6 text-[#151811] shadow-[0_8px_20px_rgba(86,70,24,0.06)] outline-none transition placeholder:text-black/34 focus:bg-white focus:ring-4 disabled:opacity-50 ${slotTheme.input}`}
                       placeholder={`输入${field.label}，例如：鸡排饭 100g鸡排 250g米饭 1勺蛋白粉30g（空格或逗号分隔都可）`}
                     />
 

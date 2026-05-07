@@ -204,6 +204,65 @@ describe("daily brief", () => {
     expect(brief.rescheduledToDate).toBe("2026-03-15");
     expect(brief.workoutPrescription.exercises).toEqual([]);
   });
+
+  it("builds a stop-training brief during an active stop-training window", () => {
+    const plan = {
+      ...defaultPlan,
+      kind: "stop_training" as const,
+      stopTraining: {
+        startDate: "2026-03-12",
+        endDate: "2026-03-16",
+        pauseType: "recovery" as const,
+        note: "sick week",
+      },
+    };
+
+    const result = buildDailyBrief(
+      {
+        date: "2026-03-13",
+        userQuestion: "",
+      },
+      defaultProfile,
+      plan,
+      defaultTemplates,
+      [],
+      null,
+    );
+
+    expect(result.brief.isRestDay).toBe(true);
+    expect(result.brief.workoutPrescription.exercises).toEqual([]);
+    expect(result.brief.workoutPrescription.title).toContain("停训");
+    expect(result.brief.mealPrescription.macros.proteinG).toBeGreaterThanOrEqual(114);
+  });
+
+  it("shows a resume prompt after the stop-training window has ended", () => {
+    const plan = {
+      ...defaultPlan,
+      kind: "stop_training" as const,
+      stopTraining: {
+        startDate: "2026-03-12",
+        endDate: "2026-03-25",
+        pauseType: "life_admin" as const,
+        note: "travel",
+      },
+    };
+
+    const result = buildDailyBrief(
+      {
+        date: "2026-03-26",
+        userQuestion: "",
+      },
+      defaultProfile,
+      plan,
+      defaultTemplates,
+      [],
+      null,
+    );
+
+    expect(result.brief.isRestDay).toBe(true);
+    expect(result.brief.workoutPrescription.title).toContain("到期");
+    expect(result.brief.reasoningSummary.join(" ")).toContain("停训计划已结束");
+  });
 });
 
 describe("adjustment proposal", () => {

@@ -1,5 +1,7 @@
 export type DayCode = "A" | "B" | "C";
 export type PlanPhase = "lean_bulk" | "cut" | "maintenance";
+export type PlanKind = "formal_training" | "stop_training";
+export type StopTrainingType = "recovery" | "life_admin" | "weight_control";
 export type KnowledgeBasisType = "knowledge" | "history" | "inference";
 export type ProposalScope = "day" | "week" | "cycle";
 export type ProposalStatus = "pending" | "approved" | "rejected";
@@ -84,8 +86,16 @@ export interface ManualOverrides {
   recoveryMode?: "standard" | "deload";
 }
 
+export interface StopTrainingPlan {
+  startDate: string;
+  endDate: string;
+  pauseType: StopTrainingType;
+  note: string;
+}
+
 export interface LongTermPlan {
   id: string;
+  kind: PlanKind;
   goal: string;
   phase: PlanPhase;
   startDate: string;
@@ -101,6 +111,7 @@ export interface LongTermPlan {
   mealStrategy: MealStrategy;
   note: string;
   manualOverrides?: ManualOverrides;
+  stopTraining?: StopTrainingPlan;
 }
 
 export interface ExerciseTemplate {

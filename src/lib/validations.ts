@@ -3,6 +3,8 @@ import { z } from "zod";
 const dayCodeSchema = z.enum(["A", "B", "C"]);
 const performedDaySchema = z.union([dayCodeSchema, z.literal("rest")]);
 const schedulePatternSchema = z.literal("3on1off");
+const planKindSchema = z.enum(["formal_training", "stop_training"]);
+const stopTrainingTypeSchema = z.enum(["recovery", "life_admin", "weight_control"]);
 const postWorkoutSourceSchema = z.enum(["dedicated", "lunch", "dinner"]);
 const mealAdherenceSchema = z.enum(["on_plan", "adjusted", "missed"]);
 const planCalendarSlotSchema = z.union([dayCodeSchema, z.literal("rest")]);
@@ -52,6 +54,7 @@ export const planSetupSchema = z.object({
   }),
   plan: z.object({
     id: z.string(),
+    kind: planKindSchema,
     goal: z.string().min(1),
     phase: z.enum(["lean_bulk", "cut", "maintenance"]),
     startDate: z.string(),
@@ -117,6 +120,36 @@ export const planSetupSchema = z.object({
         recoveryMode: z.enum(["standard", "deload"]).optional(),
       })
       .optional(),
+    stopTraining: z
+      .object({
+        startDate: z.string().min(1),
+        endDate: z.string().min(1),
+        pauseType: stopTrainingTypeSchema,
+        note: z.string(),
+      })
+      .optional(),
+  }).superRefine((plan, ctx) => {
+    if (plan.kind === "stop_training" && !plan.stopTraining) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stopTraining"],
+        message: "Stop-training plans require stop-training details.",
+      });
+    }
+    if (plan.kind === "formal_training" && plan.stopTraining) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stopTraining"],
+        message: "Formal training plans cannot include stop-training details.",
+      });
+    }
+    if (plan.stopTraining && plan.stopTraining.endDate < plan.stopTraining.startDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stopTraining", "endDate"],
+        message: "End date must be on or after start date.",
+      });
+    }
   }),
   templates: z.array(
     z.object({

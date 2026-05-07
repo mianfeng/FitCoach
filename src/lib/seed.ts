@@ -48,6 +48,7 @@ export const defaultProfile: UserProfile = {
 
 export const defaultPlan: LongTermPlan = {
   id: "plan-primary",
+  kind: "formal_training",
   goal: "60kg -> 65kg Lean Bulk",
   phase: "lean_bulk",
   startDate: isoToday(),

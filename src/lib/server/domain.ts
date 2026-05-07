@@ -17,6 +17,7 @@ import type {
   PlanSnapshot,
   PlanAdjustmentProposal,
   SessionReport,
+  StopTrainingPlan,
   TrainingReschedule,
   UserProfile,
   WorkoutPrescription,
@@ -49,6 +50,32 @@ function parseRepStyle(repStyle: string) {
 }
 
 const calendarCycle: PlanCalendarSlot[] = ["A", "B", "C", "rest"];
+
+function getStopTrainingDurationDays(stopTraining: StopTrainingPlan) {
+  return diffIsoDays(stopTraining.endDate, stopTraining.startDate) + 1;
+}
+
+function isStopTrainingActive(plan: LongTermPlan, date: string) {
+  return Boolean(
+    plan.kind === "stop_training" &&
+      plan.stopTraining &&
+      date >= plan.stopTraining.startDate &&
+      date <= plan.stopTraining.endDate,
+  );
+}
+
+function hasStopTrainingEnded(plan: LongTermPlan, date: string) {
+  return Boolean(plan.kind === "stop_training" && plan.stopTraining && date > plan.stopTraining.endDate);
+}
+
+function getStopTrainingResumeRecommendation(stopTraining: StopTrainingPlan) {
+  const totalDays = getStopTrainingDurationDays(stopTraining);
+  if (totalDays <= 7) {
+    return "停训在 7 天以内，默认建议优先接续原正式计划。";
+  }
+
+  return "停训已超过 7 天，默认建议优先重新生成正式计划，再恢复正式训练。";
+}
 
 function resolveCalendarEntry(plan: LongTermPlan, date: string): PlanCalendarEntry {
   const matched = plan.calendarEntries.find((entry) => entry.date === date);
@@ -255,6 +282,145 @@ export function buildMealPrescription(
   };
 }
 
+function buildStopTrainingMealPrescription(
+  profile: UserProfile,
+  plan: LongTermPlan,
+  stopTraining: StopTrainingPlan,
+): MealPrescription {
+  const totalDays = getStopTrainingDurationDays(stopTraining);
+  const longPause = totalDays > 7;
+  const macroPreset = (() => {
+    switch (stopTraining.pauseType) {
+      case "recovery":
+        return {
+          carbsPerKg: longPause ? 2.2 : 2.4,
+          proteinPerKg: Math.max(plan.mealStrategy.proteinPerKg, 1.9),
+          fatsPerKg: Math.max(plan.mealStrategy.fatsPerKg, 0.9),
+          guidance: [
+            "停训期以恢复优先，蛋白和基础碳水不要压得过低。",
+            "优先保证规律进食、补水和睡眠，避免把恢复周吃成节食周。",
+          ],
+        };
+      case "life_admin":
+        return {
+          carbsPerKg: longPause ? 2.0 : 2.2,
+          proteinPerKg: Math.max(plan.mealStrategy.proteinPerKg, 1.9),
+          fatsPerKg: Math.max(plan.mealStrategy.fatsPerKg - 0.05, 0.85),
+          guidance: [
+            "事务型停训优先维持体重和作息稳定，不追求极端减量。",
+            "把训练窗口碳水收回到三餐，减少随机加餐和失控外食。",
+          ],
+        };
+      case "weight_control":
+        return {
+          carbsPerKg: longPause ? 1.8 : 2.0,
+          proteinPerKg: Math.max(plan.mealStrategy.proteinPerKg, 2.1),
+          fatsPerKg: Math.max(plan.mealStrategy.fatsPerKg - 0.1, 0.8),
+          guidance: [
+            "控体重型停训优先保蛋白，再从非关键碳水里制造温和缺口。",
+            "避免停训叠加暴食；如果活动明显下降，晚餐主食进一步保守。",
+          ],
+        };
+    }
+  })();
+
+  return {
+    dayType: "rest",
+    macros: {
+      carbsG: Math.round(profile.currentWeightKg * macroPreset.carbsPerKg),
+      proteinG: Math.round(profile.currentWeightKg * macroPreset.proteinPerKg),
+      fatsG: Math.round(profile.currentWeightKg * macroPreset.fatsPerKg),
+    },
+    meals: buildMealBlocks("rest", plan.mealStrategy.restExamples, plan.mealStrategy.mealSplit),
+    guidance: [...macroPreset.guidance, getStopTrainingResumeRecommendation(stopTraining)],
+  };
+}
+
+export function buildStopTrainingBrief(params: {
+  date: string;
+  profile: UserProfile;
+  plan: LongTermPlan;
+}) {
+  const { date, profile, plan } = params;
+  const stopTraining = plan.stopTraining;
+  if (!stopTraining) {
+    throw new Error("Missing stop-training details");
+  }
+
+  return {
+    id: uid("brief"),
+    date,
+    scheduledDate: date,
+    calendarLabel: `Stop Training · ${stopTraining.pauseType}`,
+    calendarSlot: "rest" as const,
+    isRestDay: true,
+    workoutPrescription: {
+      dayCode: "A" as const,
+      title: "停训计划",
+      objective: "当前不生成正式 A/B/C 力量训练，今天按恢复、轻活动和饮食管理执行。",
+      warmup: ["轻度步行 20-30 分钟", "活动度练习 10 分钟", "按停训原因管理恢复节奏"],
+      exercises: [],
+      caution: [
+        `停训类型：${stopTraining.pauseType}`,
+        `停训周期：${stopTraining.startDate} -> ${stopTraining.endDate}`,
+        stopTraining.note.trim() ? `备注：${stopTraining.note.trim()}` : "今天不要求填写正式训练动作。",
+      ],
+    },
+    mealPrescription: buildStopTrainingMealPrescription(profile, plan, stopTraining),
+    reasoningSummary: [
+      "当前计划类型是 stop_training，Today 不再生成正式力量训练处方。",
+      `停训原因是 ${stopTraining.pauseType}，饮食和恢复建议按该停训类型切换。`,
+      getStopTrainingResumeRecommendation(stopTraining),
+    ],
+    planRevisionId: plan.planRevisionId,
+    sourceSnapshotId: uid("snapshot"),
+    userQuestion: "",
+    createdAt: new Date().toISOString(),
+  } satisfies DailyBrief;
+}
+
+export function buildStopTrainingEndedBrief(params: {
+  date: string;
+  profile: UserProfile;
+  plan: LongTermPlan;
+}) {
+  const { date, profile, plan } = params;
+  const stopTraining = plan.stopTraining;
+  if (!stopTraining) {
+    throw new Error("Missing stop-training details");
+  }
+
+  return {
+    id: uid("brief"),
+    date,
+    scheduledDate: date,
+    calendarLabel: "Stop Training Completed",
+    calendarSlot: "rest" as const,
+    isRestDay: true,
+    workoutPrescription: {
+      dayCode: "A" as const,
+      title: "停训计划已到期",
+      objective: "先去 /plan 确认后续路径，再决定是接续原正式计划还是重新生成正式计划。",
+      warmup: ["今天不自动恢复正式训练", "先确认恢复路径再重启训练周期"],
+      exercises: [],
+      caution: [
+        `${stopTraining.startDate} -> ${stopTraining.endDate} 的停训周期已结束。`,
+        getStopTrainingResumeRecommendation(stopTraining),
+        "请进入 /plan 切回正式训练计划，或基于当前状态重新生成新计划。",
+      ],
+    },
+    mealPrescription: buildStopTrainingMealPrescription(profile, plan, stopTraining),
+    reasoningSummary: [
+      "停训计划已结束，系统不会静默切回正式训练。",
+      getStopTrainingResumeRecommendation(stopTraining),
+    ],
+    planRevisionId: plan.planRevisionId,
+    sourceSnapshotId: uid("snapshot"),
+    userQuestion: "",
+    createdAt: new Date().toISOString(),
+  } satisfies DailyBrief;
+}
+
 export function buildDailyBrief(
   request: DailyBriefRequest,
   profile: UserProfile,
@@ -263,6 +429,28 @@ export function buildDailyBrief(
   reports: SessionReport[],
   existingBrief: DailyBrief | null,
 ) {
+  if (isStopTrainingActive(plan, request.date)) {
+    return {
+      brief: buildStopTrainingBrief({
+        date: request.date,
+        profile,
+        plan,
+      }),
+      reused: false,
+    };
+  }
+
+  if (hasStopTrainingEnded(plan, request.date)) {
+    return {
+      brief: buildStopTrainingEndedBrief({
+        date: request.date,
+        profile,
+        plan,
+      }),
+      reused: false,
+    };
+  }
+
   const calendarEntry = resolveCalendarEntry(plan, request.date);
   const fallbackScheduledDay = calendarEntry.slot === "rest" ? undefined : calendarEntry.slot;
 
@@ -917,6 +1105,12 @@ export function buildChatContextBundle(params: {
   const weeklyPhase = getCurrentWeeklyPhase(plan, isoToday());
   const latestReport = sortReportsDesc(reports)[0];
   const currentDate = isoToday();
+  const activePlanSummary =
+    plan.kind === "stop_training" && plan.stopTraining
+      ? `当前处于停训计划（${plan.stopTraining.pauseType}），区间 ${plan.stopTraining.startDate} -> ${plan.stopTraining.endDate}。${getStopTrainingResumeRecommendation(plan.stopTraining)}`
+      : `当前阶段 ${weeklyPhase.label}，今日顺位 ${getNextScheduledDay(plan, reports)}，恢复模式 ${
+          plan.manualOverrides?.recoveryMode ?? "standard"
+        }。`;
 
   return {
     persona,
@@ -924,6 +1118,7 @@ export function buildChatContextBundle(params: {
     activePlanSummary: `当前阶段 ${weeklyPhase.label}，今日顺位 ${getNextScheduledDay(plan, reports)}，恢复模式 ${
       plan.manualOverrides?.recoveryMode ?? "standard"
     }。`,
+    stopTrainingPlanSummary: activePlanSummary,
     recentReportSummary: buildChatReportSummary(reports),
     latestReportSummary:
       buildLatestReportSummary(latestReport) +
@@ -1076,5 +1271,3 @@ export function createReportDraftFromBrief(brief: DailyBrief) {
     completed: false,
   };
 }
-
-

@@ -10,6 +10,7 @@ import type {
   WorkoutTemplate,
 } from "@/lib/types";
 import { regenerateLinearPlan } from "@/lib/plan-generator";
+import { DEFAULT_CUT_MACRO_TEMPLATE } from "@/lib/plan-presets";
 import { applyCurrentTemplateLayout } from "@/lib/template-layout";
 import { isoToday, uid } from "@/lib/utils";
 
@@ -93,6 +94,7 @@ export const defaultPlan: LongTermPlan = {
     restExamples: ["米饭 + 鸡胸", "土豆 + 牛肉", "鸡蛋 + 牛奶", "蔬菜多吃"],
   },
   note: "训练顺序固定为 A/B/C 顺延，错过当天不跳过。",
+  cutMacroTemplate: DEFAULT_CUT_MACRO_TEMPLATE,
   manualOverrides: {
     recoveryMode: "standard",
   },
@@ -112,6 +114,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
     exercises: [
       {
         id: "a1",
+        exerciseRole: "main",
         name: "反手高位下拉",
         category: "compound",
         focus: "下背阔厚度",
@@ -130,6 +133,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "a2",
+        exerciseRole: "accessory",
         name: "对握高位下拉",
         category: "compound",
         focus: "上背阔与大圆肌",
@@ -145,6 +149,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "a3",
+        exerciseRole: "accessory",
         name: "窄对握绳索划船",
         category: "compound",
         focus: "背部厚度",
@@ -160,6 +165,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "a4",
+        exerciseRole: "accessory",
         name: "开肘划船",
         category: "accessory",
         focus: "中上背细节",
@@ -175,6 +181,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "a5",
+        exerciseRole: "accessory",
         name: "绳索直臂下压",
         category: "accessory",
         focus: "背阔泵感收尾",
@@ -190,6 +197,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "a6",
+        exerciseRole: "accessory",
         name: "杠铃弯举",
         category: "accessory",
         focus: "肱二头肌",
@@ -218,6 +226,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
     exercises: [
       {
         id: "b1",
+        exerciseRole: "main",
         name: "杠铃卧推",
         category: "compound",
         focus: "胸部主项",
@@ -234,6 +243,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "b2",
+        exerciseRole: "accessory",
         name: "上斜哑铃卧推",
         category: "compound",
         focus: "上胸",
@@ -249,6 +259,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "b3",
+        exerciseRole: "accessory",
         name: "哑铃推举",
         category: "compound",
         focus: "肩部主项",
@@ -264,6 +275,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "b4",
+        exerciseRole: "accessory",
         name: "侧平举",
         category: "accessory",
         focus: "肩中束",
@@ -279,6 +291,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "b5",
+        exerciseRole: "accessory",
         name: "绳索下压",
         category: "accessory",
         focus: "肱三头",
@@ -307,6 +320,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
     exercises: [
       {
         id: "c1",
+        exerciseRole: "main",
         name: "哈克深蹲",
         category: "compound",
         focus: "股四头主项",
@@ -323,6 +337,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "c2",
+        exerciseRole: "accessory",
         name: "罗马尼亚硬拉",
         category: "compound",
         focus: "后链 / 臀腿",
@@ -339,6 +354,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "c3",
+        exerciseRole: "accessory",
         name: "反向山羊挺身",
         category: "core",
         focus: "核心刚性",
@@ -353,6 +369,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "c4",
+        exerciseRole: "accessory",
         name: "悬垂举腿",
         category: "core",
         focus: "腹部控制",
@@ -367,6 +384,7 @@ const defaultTemplateBlueprints: WorkoutTemplate[] = [
       },
       {
         id: "c5",
+        exerciseRole: "accessory",
         name: "跪姿卷腹",
         category: "core",
         focus: "腹肌孤立",

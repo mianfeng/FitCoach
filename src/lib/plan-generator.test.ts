@@ -43,6 +43,35 @@ describe("plan snapshots", () => {
     expect(restSnapshot?.mealPrescription.guidance.at(-1)).toContain("253");
   });
 
+  it("normalizes each training day to exactly one main exercise", () => {
+    const setup = buildDefaultPlanSetup();
+
+    for (const template of setup.templates) {
+      expect(template.exercises.filter((exercise) => exercise.exerciseRole === "main")).toHaveLength(1);
+    }
+  });
+
+  it("uses fixed cut macros and lowers accessory volume for cut snapshots", () => {
+    const setup = buildDefaultPlanSetup();
+    const snapshots = buildPlanSnapshots({
+      ...setup,
+      plan: {
+        ...setup.plan,
+        phase: "cut",
+        startDate: "2026-03-12",
+        calendarEntries: [],
+      },
+    });
+
+    const trainingSnapshot = snapshots.find((snapshot) => snapshot.scheduledDay === "A");
+
+    expect(trainingSnapshot?.mealPrescription.macros).toEqual({
+      proteinG: 90,
+      fatsG: 48,
+      carbsG: 150,
+    });
+  });
+
   it("only updates current and future snapshots after a plan change", () => {
     const merged = mergePlanSnapshotsFromDate(
       [

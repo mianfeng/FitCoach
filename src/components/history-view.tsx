@@ -81,10 +81,8 @@ function getTemplateOrder(dayCode: WorkoutTemplate["dayCode"]) {
 }
 
 function pickMainExercises(template: WorkoutTemplate) {
-  const primary = template.exercises.find((exercise) => exercise.category === "compound") ?? template.exercises[0];
-  const secondary =
-    template.exercises.find((exercise) => exercise.category === "compound" && exercise.id !== primary?.id) ??
-    template.exercises.find((exercise) => exercise.id !== primary?.id);
+  const primary = template.exercises.find((exercise) => exercise.exerciseRole === "main") ?? template.exercises[0];
+  const secondary = template.exercises.find((exercise) => exercise.id !== primary?.id);
   return { primary, secondary };
 }
 

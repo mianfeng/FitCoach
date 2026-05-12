@@ -2,6 +2,7 @@ export type DayCode = "A" | "B" | "C";
 export type PlanPhase = "lean_bulk" | "cut" | "maintenance";
 export type PlanKind = "formal_training" | "stop_training";
 export type StopTrainingType = "recovery" | "life_admin" | "weight_control";
+export type ExerciseRole = "main" | "accessory";
 export type KnowledgeBasisType = "knowledge" | "history" | "inference";
 export type ProposalScope = "day" | "week" | "cycle";
 export type ProposalStatus = "pending" | "approved" | "rejected";
@@ -81,6 +82,17 @@ export interface MealStrategy {
   restExamples: string[];
 }
 
+export interface MacroTarget {
+  proteinG: number;
+  carbsG: number;
+  fatsG: number;
+}
+
+export interface CutMacroTemplate {
+  trainingDay: MacroTarget;
+  restDay: MacroTarget;
+}
+
 export interface ManualOverrides {
   carbModifierPerKg?: number;
   recoveryMode?: "standard" | "deload";
@@ -109,6 +121,7 @@ export interface LongTermPlan {
   progressionRule: ProgressionRule;
   deloadRule: DeloadRule;
   mealStrategy: MealStrategy;
+  cutMacroTemplate?: CutMacroTemplate;
   note: string;
   manualOverrides?: ManualOverrides;
   stopTraining?: StopTrainingPlan;
@@ -117,6 +130,7 @@ export interface LongTermPlan {
 export interface ExerciseTemplate {
   id: string;
   name: string;
+  exerciseRole: ExerciseRole;
   category: "compound" | "accessory" | "core";
   focus: string;
   sets: number;
@@ -177,11 +191,7 @@ export interface MealBlock {
 
 export interface MealPrescription {
   dayType: "training" | "rest";
-  macros: {
-    carbsG: number;
-    proteinG: number;
-    fatsG: number;
-  };
+  macros: MacroTarget;
   meals: MealBlock[];
   guidance: string[];
 }

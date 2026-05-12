@@ -5,10 +5,12 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { SectionCard } from "@/components/section-card";
 import { regenerateLinearPlan } from "@/lib/plan-generator";
+import { DEFAULT_CUT_MACRO_TEMPLATE } from "@/lib/plan-presets";
 import type {
   DayCode,
   PlanCalendarEntry,
   PlanKind,
+  PlanPhase,
   PlanSetupInput,
   SessionReport,
   StopTrainingType,
@@ -26,6 +28,11 @@ interface PlanEditorProps {
 
 const durationPresets = [4, 8, 12];
 const DRAFT_STORAGE_KEY = "fitcoach:plan-draft:v2";
+const phaseLabels: Record<PlanPhase, string> = {
+  lean_bulk: "增肌期",
+  cut: "减脂期",
+  maintenance: "维持期",
+};
 const stopTrainingTypeLabels: Record<StopTrainingType, string> = {
   recovery: "恢复型",
   life_admin: "事务型",
@@ -88,6 +95,7 @@ export function PlanEditor({ initialData, recentReports, trainingReschedules, to
   const visibleWeek = groupedWeeks.find(([week]) => week === selectedWeek) ?? groupedWeeks[0];
   const isStopTraining = form.plan.kind === "stop_training";
   const stopTraining = form.plan.stopTraining;
+  const cutMacroTemplate = form.plan.cutMacroTemplate ?? DEFAULT_CUT_MACRO_TEMPLATE;
 
   useEffect(() => {
     try {
@@ -174,6 +182,19 @@ export function PlanEditor({ initialData, recentReports, trainingReschedules, to
     );
   }
 
+  function updatePlanPhase(phase: PlanPhase) {
+    updateForm(
+      (current) => ({
+        ...current,
+        plan: {
+          ...current.plan,
+          phase,
+        },
+      }),
+      { needsRegeneration: false },
+    );
+  }
+
   function updateStopTrainingField<K extends keyof NonNullable<PlanSetupInput["plan"]["stopTraining"]>>(
     key: K,
     value: NonNullable<PlanSetupInput["plan"]["stopTraining"]>[K],
@@ -216,6 +237,26 @@ export function PlanEditor({ initialData, recentReports, trainingReschedules, to
     }));
   }
 
+  function setExerciseRole(dayCode: DayCode, exerciseIndex: number) {
+    updateForm(
+      (current) => ({
+        ...current,
+        templates: current.templates.map((template) =>
+          template.dayCode === dayCode
+            ? {
+                ...template,
+                exercises: template.exercises.map((exercise, currentExerciseIndex) => ({
+                  ...exercise,
+                  exerciseRole: currentExerciseIndex === exerciseIndex ? "main" : "accessory",
+                })),
+              }
+            : template,
+        ),
+      }),
+      { needsRegeneration: false },
+    );
+  }
+
   function addExercise(dayCode: DayCode) {
     updateForm((current) => ({
       ...current,
@@ -228,6 +269,7 @@ export function PlanEditor({ initialData, recentReports, trainingReschedules, to
                 {
                   id: uid(`${dayCode.toLowerCase()}-exercise`),
                   name: "",
+                  exerciseRole: "accessory",
                   category: "compound",
                   focus: "",
                   sets: 4,
@@ -254,10 +296,23 @@ export function PlanEditor({ initialData, recentReports, trainingReschedules, to
       ...current,
       templates: current.templates.map((template) =>
         template.dayCode === dayCode
-          ? {
-              ...template,
-              exercises: template.exercises.filter((_, currentExerciseIndex) => currentExerciseIndex !== exerciseIndex),
-            }
+          ? (() => {
+              const removedExercise = template.exercises[exerciseIndex];
+              const remainingExercises = template.exercises.filter((_, currentExerciseIndex) => currentExerciseIndex !== exerciseIndex);
+              if (removedExercise?.exerciseRole === "main" && remainingExercises.length) {
+                return {
+                  ...template,
+                  exercises: remainingExercises.map((exercise, currentExerciseIndex) => ({
+                    ...exercise,
+                    exerciseRole: currentExerciseIndex === 0 ? "main" : "accessory",
+                  })),
+                };
+              }
+              return {
+                ...template,
+                exercises: remainingExercises,
+              };
+            })()
           : template,
       ),
     }));
@@ -266,6 +321,14 @@ export function PlanEditor({ initialData, recentReports, trainingReschedules, to
   function generatePlan() {
     if (isStopTraining) {
       setFeedback("停训模式下不会生成 A/B/C 训练模板。");
+      return;
+    }
+
+    const invalidRoleTemplate = form.templates.find(
+      (template) => template.exercises.filter((exercise) => exercise.exerciseRole === "main").length !== 1,
+    );
+    if (invalidRoleTemplate) {
+      setFeedback(`${invalidRoleTemplate.dayCode} 日必须恰好设置 1 个主项。`);
       return;
     }
 
@@ -304,6 +367,16 @@ export function PlanEditor({ initialData, recentReports, trainingReschedules, to
     if (isStopTraining && stopTraining && stopTraining.endDate < stopTraining.startDate) {
       setFeedback("停训结束日期不能早于开始日期。");
       return;
+    }
+
+    if (!isStopTraining) {
+      const invalidRoleTemplate = form.templates.find(
+        (template) => template.exercises.filter((exercise) => exercise.exerciseRole === "main").length !== 1,
+      );
+      if (invalidRoleTemplate) {
+        setFeedback(`${invalidRoleTemplate.dayCode} 日必须恰好设置 1 个主项。`);
+        return;
+      }
     }
 
     if (needsRegeneration) {
@@ -558,6 +631,47 @@ export function PlanEditor({ initialData, recentReports, trainingReschedules, to
 
         {!isStopTraining ? (
           <>
+            <div className="mt-4 rounded-[22px] bg-white/82 p-4">
+              <div className="text-xs uppercase tracking-[0.24em] text-black/42">训练阶段</div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {(Object.keys(phaseLabels) as PlanPhase[]).map((phase) => (
+                  <button
+                    key={phase}
+                    type="button"
+                    onClick={() => updatePlanPhase(phase)}
+                    className={`rounded-[16px] px-4 py-3 text-sm font-semibold transition ${
+                      form.plan.phase === phase ? "bg-[#151811] text-white" : "bg-[#f4f0e3] text-[#151811]"
+                    }`}
+                  >
+                    {phaseLabels[phase]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {form.plan.phase === "cut" ? (
+              <div className="mt-4 rounded-[22px] border border-[#e4d7a7] bg-[#fff6df] p-4 text-[#151811]">
+                <div className="text-xs uppercase tracking-[0.24em] text-black/42">减脂固定宏量</div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[18px] bg-white px-4 py-4">
+                    <div className="text-xs uppercase tracking-[0.2em] text-black/42">训练日</div>
+                    <div className="mt-2 text-lg font-semibold">
+                      P {cutMacroTemplate.trainingDay.proteinG} / F {cutMacroTemplate.trainingDay.fatsG} / C {cutMacroTemplate.trainingDay.carbsG}
+                    </div>
+                  </div>
+                  <div className="rounded-[18px] bg-white px-4 py-4">
+                    <div className="text-xs uppercase tracking-[0.2em] text-black/42">休息日</div>
+                    <div className="mt-2 text-lg font-semibold">
+                      P {cutMacroTemplate.restDay.proteinG} / F {cutMacroTemplate.restDay.fatsG} / C {cutMacroTemplate.restDay.carbsG}
+                    </div>
+                  </div>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-black/60">
+                  这组减脂宏量当前为只读模板。减脂期会保留主项推进，并下调辅项训练量。
+                </p>
+              </div>
+            ) : null}
+
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <label className="block rounded-[22px] bg-white/82 p-4">
                 <span className="text-xs uppercase tracking-[0.24em] text-black/42">正式计划开始日期</span>
@@ -703,6 +817,23 @@ export function PlanEditor({ initialData, recentReports, trainingReschedules, to
                           placeholder="输入动作名称"
                         />
                       </label>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setExerciseRole(template.dayCode, exerciseIndex)}
+                          className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                            exercise.exerciseRole === "main"
+                              ? "bg-[#151811] text-white"
+                              : "bg-white text-[#151811] border border-black/10"
+                          }`}
+                        >
+                          {exercise.exerciseRole === "main" ? "主项" : "设为主项"}
+                        </button>
+                        <span className="rounded-full bg-[#f1ebd9] px-3 py-1.5 text-xs text-black/58">
+                          {exercise.exerciseRole === "main" ? "严格按重量推进" : "以 RPE 8 为标准，重量仅参考"}
+                        </span>
+                      </div>
 
                       <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2">
                         <label className="block">

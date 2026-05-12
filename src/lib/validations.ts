@@ -5,6 +5,7 @@ const performedDaySchema = z.union([dayCodeSchema, z.literal("rest")]);
 const schedulePatternSchema = z.literal("3on1off");
 const planKindSchema = z.enum(["formal_training", "stop_training"]);
 const stopTrainingTypeSchema = z.enum(["recovery", "life_admin", "weight_control"]);
+const exerciseRoleSchema = z.enum(["main", "accessory"]);
 const postWorkoutSourceSchema = z.enum(["dedicated", "lunch", "dinner"]);
 const mealAdherenceSchema = z.enum(["on_plan", "adjusted", "missed"]);
 const planCalendarSlotSchema = z.union([dayCodeSchema, z.literal("rest")]);
@@ -113,6 +114,20 @@ export const planSetupSchema = z.object({
       trainingExamples: z.array(z.string()),
       restExamples: z.array(z.string()),
     }),
+    cutMacroTemplate: z
+      .object({
+        trainingDay: z.object({
+          proteinG: z.number().min(0),
+          carbsG: z.number().min(0),
+          fatsG: z.number().min(0),
+        }),
+        restDay: z.object({
+          proteinG: z.number().min(0),
+          carbsG: z.number().min(0),
+          fatsG: z.number().min(0),
+        }),
+      })
+      .optional(),
     note: z.string(),
     manualOverrides: z
       .object({
@@ -162,6 +177,7 @@ export const planSetupSchema = z.object({
         z.object({
           id: z.string(),
           name: z.string(),
+          exerciseRole: exerciseRoleSchema.optional(),
           category: z.enum(["compound", "accessory", "core"]),
           focus: z.string(),
           sets: z.number().min(1),
@@ -181,6 +197,19 @@ export const planSetupSchema = z.object({
       ),
     }),
   ),
+}).superRefine((input, ctx) => {
+  if (input.plan.kind === "formal_training") {
+    for (const template of input.templates) {
+      const mainCount = template.exercises.filter((exercise) => exercise.exerciseRole === "main").length;
+      if (mainCount !== 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["templates"],
+          message: `Formal training day ${template.dayCode} must contain exactly one main exercise.`,
+        });
+      }
+    }
+  }
 });
 
 const nutritionMacrosSchema = z

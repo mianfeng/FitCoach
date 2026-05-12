@@ -9,6 +9,7 @@ import type {
   WorkoutTemplate,
 } from "@/lib/types";
 import { reindexCalendarEntries } from "@/lib/plan-calendar";
+import { DEFAULT_CUT_MACRO_TEMPLATE, normalizeExerciseRolesForTemplates } from "@/lib/plan-presets";
 import { applyCurrentTemplateLayout } from "@/lib/template-layout";
 import { clamp, roundToIncrement, shiftIsoDate, uid } from "@/lib/utils";
 
@@ -39,6 +40,27 @@ function buildMealBlocks(
 }
 
 function buildSnapshotMealPrescription(input: PlanSetupInput, mode: "training" | "rest"): MealPrescription {
+  if (input.plan.phase === "cut") {
+    const cutMacroTemplate = input.plan.cutMacroTemplate ?? DEFAULT_CUT_MACRO_TEMPLATE;
+
+    return {
+      dayType: mode,
+      macros: mode === "training" ? cutMacroTemplate.trainingDay : cutMacroTemplate.restDay,
+      meals: buildMealBlocks(
+        mode,
+        mode === "training" ? input.plan.mealStrategy.trainingExamples : input.plan.mealStrategy.restExamples,
+        input.plan.mealStrategy.mealSplit,
+      ),
+      guidance: [
+        mode === "training"
+          ? "褰撳墠涓哄噺鑴傛湡锛岀⒊姘翠紭鍏堥泦涓埌璁粌鐩稿叧椁愭銆?"
+          : "褰撳墠涓哄噺鑴傛湡浼戞伅鏃ワ紝閫氳繃闄嶄綆纰虫按绋冲畾鐑噺缂哄彛銆?",
+        "鍑忚剛鏈熶娇鐢ㄥ浐瀹氬畯閲忔ā鏉匡紝璁″垝淇濆瓨鍚庝細鍚屾鍒?Today 鍜屽揩鐓с€?",
+        "涓婚」淇濈暀姝ｅ紡鎺ㄨ繘锛岃緟椤逛紭鍏堟帶鍒剁柌鍔冲拰 RPE 8 鎵ц璐ㄩ噺銆?",
+      ],
+    };
+  }
+
   const carbModifier = input.plan.manualOverrides?.carbModifierPerKg ?? 0;
   const carbsPerKg =
     mode === "training"
@@ -189,6 +211,7 @@ function buildGeneratedExercise(
     substitutions: exercise.substitutions ?? [],
     phaseAdaptive: true,
     category: exercise.category || "compound",
+    exerciseRole: exercise.exerciseRole,
   };
 }
 
@@ -241,6 +264,7 @@ export function normalizePlanSetupInput(input: PlanSetupInput): PlanSetupInput {
     plan: {
       ...input.plan,
       goal: input.plan.goal || `${input.profile.currentWeightKg}kg -> ${input.profile.targetWeightKg}kg ${input.plan.phase}`,
+      cutMacroTemplate: input.plan.cutMacroTemplate ?? DEFAULT_CUT_MACRO_TEMPLATE,
       durationWeeks,
       startingIntensityPct,
       schedulePattern: input.plan.schedulePattern ?? "3on1off",
@@ -256,21 +280,25 @@ export function normalizePlanSetupInput(input: PlanSetupInput): PlanSetupInput {
 
   return {
     ...nextInput,
-    templates: applyCurrentTemplateLayout(
-      nextInput.templates.map((template) => ({
+    templates: normalizeExerciseRolesForTemplates(
+      applyCurrentTemplateLayout(
+        nextInput.templates.map((template) => ({
+          ...template,
+          exercises: template.exercises.map((exercise) => ({
+            ...exercise,
+            exerciseRole: exercise.exerciseRole ?? "accessory",
+            oneRepMaxKg: inferOneRepMaxKg(exercise, nextInput.profile.oneRepMaxes),
+          })),
+        })),
+      ).map((template) => ({
         ...template,
         exercises: template.exercises.map((exercise) => ({
           ...exercise,
+          exerciseRole: exercise.exerciseRole ?? "accessory",
           oneRepMaxKg: inferOneRepMaxKg(exercise, nextInput.profile.oneRepMaxes),
         })),
       })),
-    ).map((template) => ({
-      ...template,
-      exercises: template.exercises.map((exercise) => ({
-        ...exercise,
-        oneRepMaxKg: inferOneRepMaxKg(exercise, nextInput.profile.oneRepMaxes),
-      })),
-    })),
+    ),
   };
 }
 
@@ -324,7 +352,10 @@ export function buildPlanSnapshots(input: PlanSetupInput): PlanSnapshot[] {
             : (template?.exercises ?? []).map((exercise) => ({
                 name: exercise.name,
                 focus: exercise.focus,
-                sets: exercise.sets,
+                sets:
+                  normalized.plan.phase === "cut" && exercise.exerciseRole === "accessory"
+                    ? Math.max(2, exercise.sets - 1)
+                    : exercise.sets,
                 reps: exercise.reps,
                 suggestedWeightKg: exercise.usesBodyweight ? undefined : exercise.baseWeightKg,
                 restSeconds: exercise.restSeconds,

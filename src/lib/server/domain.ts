@@ -31,6 +31,7 @@ import {
   resolvePostWorkoutEntry,
   summarizeMealAdherence,
 } from "@/lib/session-report";
+import { DEFAULT_CUT_MACRO_TEMPLATE } from "@/lib/plan-presets";
 import { average, diffIsoDays, isoToday, roundToIncrement, uid } from "@/lib/utils";
 
 function sortReportsDesc(reports: SessionReport[]) {
@@ -153,10 +154,26 @@ function resolveAdaptiveScheme(exercise: ExerciseTemplate, phaseRepStyle: string
   return parsed;
 }
 
+function resolveExerciseVolume(
+  exercise: ExerciseTemplate,
+  adaptiveScheme: { sets: number; reps: string },
+  plan: LongTermPlan,
+) {
+  if (plan.phase === "cut" && exercise.exerciseRole === "accessory") {
+    return {
+      sets: Math.max(2, adaptiveScheme.sets - 1),
+      reps: adaptiveScheme.reps,
+    };
+  }
+
+  return adaptiveScheme;
+}
+
 function suggestExerciseWeight(
   exercise: ExerciseTemplate,
   profile: UserProfile,
   phaseIntensity: number,
+  plan: LongTermPlan,
   reports: SessionReport[],
 ) {
   let suggested = exercise.baseWeightKg;
@@ -174,6 +191,22 @@ function suggestExerciseWeight(
     return suggested;
   }
 
+  if (exercise.exerciseRole === "accessory") {
+    return latest.topSetWeightKg;
+  }
+
+  if (plan.phase === "cut") {
+    if (latest.droppedSets || latest.rpe >= 9) {
+      return Math.max(exercise.incrementKg, latest.topSetWeightKg - exercise.incrementKg);
+    }
+
+    if (latest.rpe <= 8 && latest.actualSets >= latest.targetSets) {
+      return Math.max(suggested ?? 0, latest.topSetWeightKg + exercise.incrementKg);
+    }
+
+    return latest.topSetWeightKg;
+  }
+
   if (latest.droppedSets || latest.rpe >= 9.3) {
     return Math.max(exercise.incrementKg, latest.topSetWeightKg - exercise.incrementKg);
   }
@@ -188,18 +221,23 @@ function suggestExerciseWeight(
 function buildWorkoutExercise(
   exercise: ExerciseTemplate,
   profile: UserProfile,
+  plan: LongTermPlan,
   phaseIntensity: number,
   phaseRepStyle: string,
   reports: SessionReport[],
 ) {
   const adaptiveScheme = resolveAdaptiveScheme(exercise, phaseRepStyle);
-  const suggestedWeightKg = suggestExerciseWeight(exercise, profile, phaseIntensity, reports);
+  const resolvedScheme = resolveExerciseVolume(exercise, adaptiveScheme, plan);
+  const suggestedWeightKg = suggestExerciseWeight(exercise, profile, phaseIntensity, plan, reports);
 
   const reasoning: string[] = [];
   if (exercise.progressionModel === "percentage" && (exercise.oneRepMaxKg || exercise.oneRepMaxRef)) {
     reasoning.push(`按当前阶段强度 ${Math.round(phaseIntensity * 100)}% 推算`);
   }
   const latest = getLatestExerciseResult(reports, exercise.name);
+  if (exercise.exerciseRole === "main") {
+    reasoning.push(plan.phase === "cut" ? "鍑忚剛鏈熶富椤圭户缁寜閲嶉噺鎺ㄨ繘锛屼絾鍔犻噸闃堝€兼洿淇濆畧銆?" : "涓婚」鎸夋寮忛噸閲忕洰鏍囨帹杩涖€?");
+  }
   if (latest?.topSetWeightKg) {
     reasoning.push(
       latest.droppedSets || latest.rpe >= 9.3
@@ -210,11 +248,19 @@ function buildWorkoutExercise(
     reasoning.push("首次处方按计划基准重量起步");
   }
 
+  if (exercise.exerciseRole === "accessory") {
+    reasoning.length = 0;
+    reasoning.push("璇ュ姩浣滀负杈呴」锛屼互 RPE 8 涓鸿川閲忔爣鍑嗭紝閲嶉噺鍙綔鍙傝€冦€?");
+    if (plan.phase === "cut") {
+      reasoning.push("鍑忚剛鏈熻緟椤规€婚噺涓嬭皟锛屼紭鍏堜繚鎸佸姩浣滆川閲忓拰鎭㈠銆?");
+    }
+  }
+
   return {
     name: exercise.name,
     focus: exercise.focus,
-    sets: adaptiveScheme.sets,
-    reps: adaptiveScheme.reps,
+    sets: resolvedScheme.sets,
+    reps: resolvedScheme.reps,
     suggestedWeightKg,
     restSeconds: exercise.restSeconds,
     cues: exercise.cues,
@@ -249,6 +295,24 @@ export function buildMealPrescription(
   plan: LongTermPlan,
   mode: "training" | "rest",
 ): MealPrescription {
+  if (plan.phase === "cut") {
+    const cutMacroTemplate = plan.cutMacroTemplate ?? DEFAULT_CUT_MACRO_TEMPLATE;
+    const exampleSet = mode === "training" ? plan.mealStrategy.trainingExamples : plan.mealStrategy.restExamples;
+
+    return {
+      dayType: mode,
+      macros: mode === "training" ? cutMacroTemplate.trainingDay : cutMacroTemplate.restDay,
+      meals: buildMealBlocks(mode, exampleSet, plan.mealStrategy.mealSplit),
+      guidance: [
+        mode === "training"
+          ? "褰撳墠涓哄噺鑴傛湡锛岃缁冩棩纰虫按浼樺厛闆嗕腑鍒扮粌鍓嶅拰缁冨悗鐩稿叧椁愭銆?"
+          : "褰撳墠涓哄噺鑴傛湡浼戞伅鏃ワ紝缁х画淇濊泲鐧藉拰鑴傝偑锛岄€氳繃杈冧綆纰虫按绋冲畾缂哄彛銆?",
+        "鍑忚剛鏈熷浐瀹氬畯閲忎负锛氳缁冩棩 90P / 48F / 150C锛屼紤鎭棩 90P / 48F / 120C銆?",
+        "涓婚」缁х画姝ｅ紡鎺ㄨ繘锛岃緟椤逛互 RPE 8 鎵ц璐ㄩ噺涓轰富锛屼笉杩借繘纭€ч噸閲忋€?",
+      ],
+    };
+  }
+
   const carbModifier = plan.manualOverrides?.carbModifierPerKg ?? 0;
   const carbsPerKg =
     mode === "training"
@@ -491,7 +555,7 @@ export function buildDailyBrief(
     exercises: isRestDay
       ? []
       : template!.exercises.map((exercise) =>
-          buildWorkoutExercise(exercise, profile, weeklyPhase.intensity, weeklyPhase.repStyle, applicableReports),
+          buildWorkoutExercise(exercise, profile, plan, weeklyPhase.intensity, weeklyPhase.repStyle, applicableReports),
         ),
     caution: [
       `当前日期对应 ${calendarEntry.label}，阶段为第 ${weeklyPhase.week} 周 ${weeklyPhase.label}。`,

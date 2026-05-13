@@ -9,7 +9,12 @@ import {
   rebaseDailyBriefToDate,
 } from "@/lib/server/domain";
 import { computeMealLogNutritionWithGemini, generateGeminiDailyReview } from "@/lib/server/gemini";
-import { createEmptyMealLog, deriveDietAdherence, normalizeMealLog } from "@/lib/session-report";
+import {
+  createEmptyMealLog,
+  deriveDietAdherence,
+  normalizeMealLog,
+  resolveMealSlotsForPrescription,
+} from "@/lib/session-report";
 import { getRepository } from "@/lib/server/repository";
 import { findInboundReschedule } from "@/lib/training-reschedule";
 import { uid } from "@/lib/utils";
@@ -21,15 +26,6 @@ export async function POST(request: Request) {
     const parsed = sessionReportSchema.parse(payload);
     const repository = await getRepository();
     const mealLog = normalizeMealLog(parsed.mealLog) ?? createEmptyMealLog();
-    const normalizedReport = {
-      ...parsed,
-      reportVersion: 2 as const,
-      mealLog,
-      trainingReportText: parsed.trainingReportText ?? "",
-      dietAdherence: parsed.dietAdherence ?? deriveDietAdherence(mealLog),
-      painNotes: parsed.painNotes?.trim() || undefined,
-      recoveryNote: parsed.recoveryNote?.trim() || undefined,
-    };
     const snapshot = await repository.getDashboardSnapshot();
     const reports = await repository.listSessionReports(Math.max(snapshot.plan.calendarEntries.length + 14, 90));
     const reschedules = await repository.listTrainingReschedules();
@@ -45,6 +41,17 @@ export async function POST(request: Request) {
           reports,
         );
     const reviewBrief = inboundReschedule ? rebaseDailyBriefToDate(baseBrief, parsed.date, inboundReschedule) : baseBrief;
+    const activeMealSlots = parsed.mealSlots?.length ? parsed.mealSlots : resolveMealSlotsForPrescription(reviewBrief.mealPrescription);
+    const normalizedReport = {
+      ...parsed,
+      reportVersion: 2 as const,
+      mealLog,
+      mealSlots: activeMealSlots,
+      trainingReportText: parsed.trainingReportText ?? "",
+      dietAdherence: parsed.dietAdherence ?? deriveDietAdherence(mealLog, activeMealSlots),
+      painNotes: parsed.painNotes?.trim() || undefined,
+      recoveryNote: parsed.recoveryNote?.trim() || undefined,
+    };
     const targetNutrition = {
       calories:
         reviewBrief.mealPrescription.macros.proteinG * 4 +
@@ -56,6 +63,7 @@ export async function POST(request: Request) {
     };
     const nutritionSummary = await computeMealLogNutritionWithGemini({
       mealLog,
+      activeMealSlots,
       targetNutrition,
       nutritionDishes: snapshot.nutritionDishes,
     });
@@ -127,6 +135,7 @@ export async function POST(request: Request) {
             nextDayDecision,
           },
           targetMacros: reviewBrief.mealPrescription.macros,
+          activeMealSlots,
           planLabel: reviewBrief.calendarLabel,
           workoutTitle: reviewBrief.workoutPrescription.title,
           draftReview: fallbackReview,

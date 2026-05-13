@@ -6,11 +6,12 @@ import { summarizeReportNutrition } from "@/lib/nutrition";
 import { env } from "@/lib/server/env";
 import type { InferredTokenEstimate } from "@/lib/nutrition";
 import { describeTrainingReadiness } from "@/lib/server/domain";
-import { normalizeMealLog, resolvePostWorkoutEntry, summarizeMealAdherence } from "@/lib/session-report";
+import { mealSlotLabels, normalizeMealLog, resolvePostWorkoutEntry, summarizeMealAdherence } from "@/lib/session-report";
 import type {
   ChatContextBundle,
   KnowledgeBasis,
   MealLog,
+  MealSlot,
   MealPrescription,
   NutritionDish,
   NutritionEstimate,
@@ -142,11 +143,13 @@ function readyNutritionResult(params: {
 
 export async function computeMealLogNutritionWithGemini(params: {
   mealLog: MealLog;
+  activeMealSlots?: MealSlot[];
   targetNutrition: NutritionEstimate;
   nutritionDishes: NutritionDish[];
 }): Promise<MealLogNutritionComputation> {
   const baseSummary = summarizeReportNutrition(params.mealLog, params.targetNutrition, {
     customDishes: params.nutritionDishes,
+    activeMealSlots: params.activeMealSlots,
   });
 
   if (!baseSummary.unknownTokens.length) {
@@ -170,6 +173,7 @@ export async function computeMealLogNutritionWithGemini(params: {
     const finalSummary = summarizeReportNutrition(params.mealLog, params.targetNutrition, {
       customDishes: params.nutritionDishes,
       inferredTokenEstimates,
+      activeMealSlots: params.activeMealSlots,
     });
     const extraWarnings = unresolvedTokens.length
       ? [`以下条目仍未识别，未计入营养汇总：${unresolvedTokens.join("、")}`]
@@ -261,6 +265,7 @@ export async function generateGeminiCoachReply(params: {
 export async function generateGeminiDailyReview(params: {
   report: SessionReport;
   targetMacros: MealPrescription["macros"];
+  activeMealSlots?: MealSlot[];
   planLabel: string;
   workoutTitle: string;
   draftReview: string;
@@ -273,45 +278,23 @@ export async function generateGeminiDailyReview(params: {
   const model = client.getGenerativeModel({ model: env.geminiModel });
   const mealLog = normalizeMealLog(params.report.mealLog);
   const effectivePostWorkout = mealLog ? resolvePostWorkoutEntry(mealLog) : null;
-  const mealSummary = summarizeMealAdherence(mealLog);
+  const activeMealSlots = params.activeMealSlots ?? params.report.mealSlots ?? ["breakfast", "lunch", "dinner", "preWorkout", "postWorkout"];
+  const mealSummary = summarizeMealAdherence(mealLog, activeMealSlots);
   const nutritionStatus =
     params.report.nutritionComputation?.status ??
     (params.report.nutritionTotals && params.report.nutritionGap ? "ready" : "pending");
   const nutritionPending = nutritionStatus === "pending";
   const targetCalories = params.targetMacros.proteinG * 4 + params.targetMacros.carbsG * 4 + params.targetMacros.fatsG * 9;
   const mealBreakdownLines = !nutritionPending && mealLog
-    ? [
-        `Breakfast nutrition: ${formatEstimateLine(
-          mealLog.breakfast.nutritionEstimate?.calories ?? 0,
-          mealLog.breakfast.nutritionEstimate?.proteinG ?? 0,
-          mealLog.breakfast.nutritionEstimate?.carbsG ?? 0,
-          mealLog.breakfast.nutritionEstimate?.fatsG ?? 0,
-        )}`,
-        `Lunch nutrition: ${formatEstimateLine(
-          mealLog.lunch.nutritionEstimate?.calories ?? 0,
-          mealLog.lunch.nutritionEstimate?.proteinG ?? 0,
-          mealLog.lunch.nutritionEstimate?.carbsG ?? 0,
-          mealLog.lunch.nutritionEstimate?.fatsG ?? 0,
-        )}`,
-        `Dinner nutrition: ${formatEstimateLine(
-          mealLog.dinner.nutritionEstimate?.calories ?? 0,
-          mealLog.dinner.nutritionEstimate?.proteinG ?? 0,
-          mealLog.dinner.nutritionEstimate?.carbsG ?? 0,
-          mealLog.dinner.nutritionEstimate?.fatsG ?? 0,
-        )}`,
-        `Pre-workout nutrition: ${formatEstimateLine(
-          mealLog.preWorkout.nutritionEstimate?.calories ?? 0,
-          mealLog.preWorkout.nutritionEstimate?.proteinG ?? 0,
-          mealLog.preWorkout.nutritionEstimate?.carbsG ?? 0,
-          mealLog.preWorkout.nutritionEstimate?.fatsG ?? 0,
-        )}`,
-        `Post-workout nutrition: ${formatEstimateLine(
-          effectivePostWorkout?.nutritionEstimate?.calories ?? 0,
-          effectivePostWorkout?.nutritionEstimate?.proteinG ?? 0,
-          effectivePostWorkout?.nutritionEstimate?.carbsG ?? 0,
-          effectivePostWorkout?.nutritionEstimate?.fatsG ?? 0,
-        )}`,
-      ]
+    ? activeMealSlots.map((slot) => {
+        const entry = slot === "postWorkout" ? effectivePostWorkout : mealLog[slot];
+        return `${mealSlotLabels[slot]} nutrition: ${formatEstimateLine(
+          entry?.nutritionEstimate?.calories ?? 0,
+          entry?.nutritionEstimate?.proteinG ?? 0,
+          entry?.nutritionEstimate?.carbsG ?? 0,
+          entry?.nutritionEstimate?.fatsG ?? 0,
+        )}`;
+      })
     : ["Nutrition is pending AI computation. Do not fabricate numeric meal breakdown."];
 
   const prompt = [
@@ -348,11 +331,10 @@ export async function generateGeminiDailyReview(params: {
       ? "Aggregated nutrition totals: pending"
       : `Aggregated nutrition totals: ${params.report.nutritionTotals?.calories ?? 0} kcal / ${params.report.nutritionTotals?.proteinG ?? 0} g protein / ${params.report.nutritionTotals?.carbsG ?? 0} g carbs / ${params.report.nutritionTotals?.fatsG ?? 0} g fats`,
     `Meal summary: on plan ${mealSummary.onPlan} / adjusted ${mealSummary.adjusted} / missed ${mealSummary.missed}`,
-    `Breakfast: ${mealLog?.breakfast.content || "未填写"}`,
-    `Lunch: ${mealLog?.lunch.content || "未填写"}`,
-    `Dinner: ${mealLog?.dinner.content || "未填写"}`,
-    `Pre-workout meal: ${mealLog?.preWorkout.content || "未填写"}`,
-    `Post-workout meal: ${effectivePostWorkout?.content || "未填写"}`,
+    ...activeMealSlots.map((slot) => {
+      const entry = slot === "postWorkout" ? effectivePostWorkout : mealLog?.[slot];
+      return `${mealSlotLabels[slot]}: ${entry?.content || "未填写"}`;
+    }),
     "Per-meal nutrition breakdown:",
     ...mealBreakdownLines,
     `Training notes: ${params.report.trainingReportText || "未填写"}`,

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeMealLog, normalizeStoredSessionReport } from "@/lib/session-report";
+import {
+  countFilledMealSlots,
+  createEmptyMealLog,
+  normalizeMealLog,
+  normalizeStoredSessionReport,
+  summarizeMealAdherence,
+} from "@/lib/session-report";
 import { nutritionDishSchema, sessionReportSchema } from "@/lib/validations";
 
 describe("session report compatibility", () => {
@@ -141,6 +147,23 @@ describe("session report compatibility", () => {
 
     expect(report.mealLog?.lunch.cookingMethod).toBe("stir_fry_heavy");
     expect(report.mealLog?.lunch.rinseOil).toBe(true);
+  });
+
+  it("counts only active cut training meal slots", () => {
+    const mealLog = createEmptyMealLog();
+    mealLog.breakfast.content = "鸡蛋";
+    mealLog.preWorkout.content = "香蕉";
+    mealLog.postWorkout.content = "米饭 鸡胸";
+    mealLog.lunch.adherence = "missed";
+
+    const activeSlots = ["breakfast", "preWorkout", "postWorkout"] as const;
+
+    expect(countFilledMealSlots(mealLog, activeSlots)).toBe(3);
+    expect(summarizeMealAdherence(mealLog, activeSlots)).toEqual({
+      onPlan: 3,
+      adjusted: 0,
+      missed: 0,
+    });
   });
 });
 

@@ -379,7 +379,7 @@ function toMealRows(report: SessionReport): ReportMealRow[] {
     return [];
   }
 
-  const mealLog = buildMealLogForSubmit(report.mealLog);
+  const mealLog = buildMealLogForSubmit(report.mealLog, report.mealSlots);
   return mealSlotOrder.map((slot, index) => ({
     id: uid("report-meal"),
     report_id: report.id,
@@ -570,7 +570,7 @@ function createMockRepository(): Repository {
       const store = await getMockStore();
       const normalizedReport = normalizeStoredSessionReport({
         ...report,
-        mealLog: report.mealLog ? buildMealLogForSubmit(report.mealLog) : undefined,
+        mealLog: report.mealLog ? buildMealLogForSubmit(report.mealLog, report.mealSlots) : undefined,
       });
       const priorReports = store.recentReports
         .map((item) => normalizeStoredSessionReport(item))
@@ -987,7 +987,7 @@ function createSupabaseRepository(): Repository {
       const resolvedReport = normalizeStoredSessionReport({
         ...report,
         id: existingReportRows?.[0]?.id ?? report.id,
-        mealLog: report.mealLog ? buildMealLogForSubmit(report.mealLog) : undefined,
+        mealLog: report.mealLog ? buildMealLogForSubmit(report.mealLog, report.mealSlots) : undefined,
       });
       const { data: existingSummaryRows } = await supabase
         .from("memory_summaries")

@@ -2,6 +2,7 @@ import type {
   MealCookingMethod,
   MealLog,
   MealLogEntry,
+  MealSlot,
   NutritionDish,
   NutritionEstimate,
   ParsedMealItem,
@@ -54,6 +55,7 @@ type MealParseOptions = {
   inferredTokenEstimates?: InferredTokenEstimate[];
   cookingMethod?: MealCookingMethod;
   rinseOil?: boolean;
+  activeMealSlots?: readonly MealSlot[];
 };
 
 type CookingMethodResolutionSource = "user" | "text" | "combo" | "default" | "none";
@@ -1260,10 +1262,19 @@ function mergeUnknownTokens(chunks: string[]) {
   return uniqueWarnings(chunks);
 }
 
-function getEffectiveSlotKeys(mealLog: MealLog) {
-  return mealLog.postWorkoutSource === "dedicated"
-    ? (["breakfast", "lunch", "dinner", "preWorkout", "postWorkout"] as const)
-    : (["breakfast", "lunch", "dinner", "preWorkout"] as const);
+function normalizeActiveMealSlots(activeMealSlots: readonly MealSlot[] | undefined) {
+  const defaultSlots = ["breakfast", "lunch", "dinner", "preWorkout", "postWorkout"] as const;
+  const source = activeMealSlots?.length ? activeMealSlots : defaultSlots;
+  return source.filter((slot, index, values) => defaultSlots.includes(slot) && values.indexOf(slot) === index);
+}
+
+function getEffectiveSlotKeys(mealLog: MealLog, activeMealSlots: readonly MealSlot[] | undefined) {
+  const slots = normalizeActiveMealSlots(activeMealSlots);
+  if (mealLog.postWorkoutSource === "dedicated") {
+    return slots;
+  }
+
+  return slots.filter((slot) => slot !== "postWorkout");
 }
 
 export function summarizeReportNutrition(
@@ -1313,7 +1324,7 @@ export function summarizeReportNutrition(
     };
   }
 
-  const slotKeys = getEffectiveSlotKeys(mealLog);
+  const slotKeys = getEffectiveSlotKeys(mealLog, options.activeMealSlots);
   const nutritionTotals = slotKeys.reduce((sum, slot) => {
     const estimate = enrichedMealLog[slot].nutritionEstimate ?? emptyNutrition();
     return addNutrition(sum, estimate);
@@ -1328,11 +1339,11 @@ export function summarizeReportNutrition(
 
   const nutritionWarnings = uniqueWarnings(slotKeys.flatMap((slot) => enrichedMealLog[slot].analysisWarnings ?? []));
   const unknownTokens = mergeUnknownTokens([
-    ...breakfastParsed.unknownTokens,
-    ...lunchParsed.unknownTokens,
-    ...dinnerParsed.unknownTokens,
-    ...preWorkoutParsed.unknownTokens,
-    ...postWorkoutParsed.unknownTokens,
+    ...(slotKeys.includes("breakfast") ? breakfastParsed.unknownTokens : []),
+    ...(slotKeys.includes("lunch") ? lunchParsed.unknownTokens : []),
+    ...(slotKeys.includes("dinner") ? dinnerParsed.unknownTokens : []),
+    ...(slotKeys.includes("preWorkout") ? preWorkoutParsed.unknownTokens : []),
+    ...(slotKeys.includes("postWorkout") ? postWorkoutParsed.unknownTokens : []),
   ]);
 
   return {

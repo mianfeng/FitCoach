@@ -27,7 +27,9 @@ import type {
 import {
   countFilledMealSlots,
   createEmptyMealLog,
+  mealSlotLabels,
   normalizeMealLog,
+  normalizeMealSlots,
   resolvePostWorkoutEntry,
   summarizeMealAdherence,
 } from "@/lib/session-report";
@@ -272,21 +274,30 @@ function buildMealBlocks(
   mode: "training" | "rest",
   examples: string[],
   mealSplit: number[],
+  options: { cutPhase?: boolean } = {},
 ): MealPrescription["meals"] {
+  if (options.cutPhase && mode === "training") {
+    return [
+      { label: "早餐", slot: "breakfast", sharePercent: 30, examples: examples.slice(0, 2) },
+      { label: "练前餐", slot: "preWorkout", sharePercent: 20, examples: ["馒头", "面包", "香蕉", "快碳饮料"] },
+      { label: "练后餐", slot: "postWorkout", sharePercent: 50, examples: ["米饭", "瘦肉", "牛奶", "高碳主食"] },
+    ];
+  }
+
   if (mode === "rest") {
     return [
-      { label: "早餐", sharePercent: 20, examples: examples.slice(0, 2) },
-      { label: "午餐", sharePercent: 50, examples: examples.slice(1, 3) },
-      { label: "晚餐", sharePercent: 30, examples: [examples[0], ...examples.slice(2, 4)].filter(Boolean) },
+      { label: "早餐", slot: "breakfast", sharePercent: 20, examples: examples.slice(0, 2) },
+      { label: "午餐", slot: "lunch", sharePercent: 50, examples: examples.slice(1, 3) },
+      { label: "晚餐", slot: "dinner", sharePercent: 30, examples: [examples[0], ...examples.slice(2, 4)].filter(Boolean) },
     ];
   }
 
   const [breakfast, lunch, preworkout, postworkout] = mealSplit;
   return [
-    { label: "早餐", sharePercent: breakfast, examples: examples.slice(0, 2) },
-    { label: "其他餐", sharePercent: lunch, examples: examples.slice(1, 3) },
-    { label: "练前餐", sharePercent: preworkout, examples: ["馒头", "面包", "香蕉", "快碳饮料"] },
-    { label: "练后餐", sharePercent: postworkout, examples: ["米饭", "瘦肉", "牛奶", "高碳主食"] },
+    { label: "早餐", slot: "breakfast", sharePercent: breakfast, examples: examples.slice(0, 2) },
+    { label: "其他餐", slot: "lunch", sharePercent: lunch, examples: examples.slice(1, 3) },
+    { label: "练前餐", slot: "preWorkout", sharePercent: preworkout, examples: ["馒头", "面包", "香蕉", "快碳饮料"] },
+    { label: "练后餐", slot: "postWorkout", sharePercent: postworkout, examples: ["米饭", "瘦肉", "牛奶", "高碳主食"] },
   ];
 }
 
@@ -302,7 +313,7 @@ export function buildMealPrescription(
     return {
       dayType: mode,
       macros: mode === "training" ? cutMacroTemplate.trainingDay : cutMacroTemplate.restDay,
-      meals: buildMealBlocks(mode, exampleSet, plan.mealStrategy.mealSplit),
+      meals: buildMealBlocks(mode, exampleSet, plan.mealStrategy.mealSplit, { cutPhase: true }),
       guidance: [
         mode === "training"
           ? "褰撳墠涓哄噺鑴傛湡锛岃缁冩棩纰虫按浼樺厛闆嗕腑鍒扮粌鍓嶅拰缁冨悗鐩稿叧椁愭銆?"
@@ -652,9 +663,10 @@ export function describeMealExecution(report: SessionReport) {
     return "餐次记录待补充";
   }
 
-  const adherence = summarizeMealAdherence(mealLog);
-  const filledCount = countFilledMealSlots(mealLog);
-  return `五餐记录 ${filledCount}/5，按计划 ${adherence.onPlan} 餐，调整 ${adherence.adjusted} 餐，缺失 ${adherence.missed} 餐`;
+  const mealSlots = normalizeMealSlots(report.mealSlots);
+  const adherence = summarizeMealAdherence(mealLog, mealSlots);
+  const filledCount = countFilledMealSlots(mealLog, mealSlots);
+  return `餐次记录 ${filledCount}/${mealSlots.length}，按计划 ${adherence.onPlan} 餐，调整 ${adherence.adjusted} 餐，缺失 ${adherence.missed} 餐`;
 }
 
 export function describeTrainingReadiness(
@@ -675,8 +687,9 @@ function buildLatestReportSummary(report: SessionReport | null | undefined) {
   }
 
   const mealLog = normalizeMealLog(report.mealLog);
-  const mealSummary = summarizeMealAdherence(mealLog);
-  const filledMealCount = countFilledMealSlots(mealLog);
+  const mealSlots = normalizeMealSlots(report.mealSlots);
+  const mealSummary = summarizeMealAdherence(mealLog, mealSlots);
+  const filledMealCount = countFilledMealSlots(mealLog, mealSlots);
   const performedCount = getPerformedExerciseCount(report);
   const totalExerciseCount = report.exerciseResults?.length ?? 0;
   const averageRpe = averageReportRpe(report);
@@ -690,7 +703,7 @@ function buildLatestReportSummary(report: SessionReport | null | undefined) {
       ? "训练记录：今天是休息日，没有训练动作需要完成。"
       : `训练记录：动作完成 ${performedCount}/${totalExerciseCount}，平均 RPE ${averageRpe.toFixed(1)}，掉组 ${droppedSetCount} 次。`,
     report.trainingReportText?.trim() ? `主观备注：${report.trainingReportText}` : "主观备注：暂无额外训练备注。",
-    filledMealCount < 5 || mealSummary.missed > 0
+    filledMealCount < mealSlots.length || mealSummary.missed > 0
       ? "注意：今天的饮食记录还不完整，判断时要把缺失餐次算进不确定性。"
       : "注意：今天的饮食记录相对完整，可以直接基于现有数据判断执行质量。",
   ].join(" ");
@@ -855,7 +868,7 @@ function resolveDailyReviewRating(params: {
 }
 
 function buildMealNutritionLine(label: string, estimate?: SessionReport["nutritionTotals"]) {
-  return `${label}：${estimate?.calories ?? 0} kcal（P ${estimate?.proteinG ?? 0} / C ${estimate?.carbsG ?? 0} / F ${estimate?.fatsG ?? 0}）`;
+  return `${label}: ${estimate?.calories ?? 0} kcal (P ${estimate?.proteinG ?? 0} / C ${estimate?.carbsG ?? 0} / F ${estimate?.fatsG ?? 0})`;
 }
 
 function buildGapAnalysisLine(
@@ -876,7 +889,7 @@ function buildStrictActionItems(params: {
 }) {
   const { report, nextDayDecision, totalDeviationRatio } = params;
   const mealLog = normalizeMealLog(report.mealLog);
-  const mealSummary = summarizeMealAdherence(mealLog);
+  const mealSummary = summarizeMealAdherence(mealLog, report.mealSlots);
   const actions: string[] = [];
 
   if (mealSummary.missed > 0 || totalDeviationRatio > 0.1) {
@@ -906,7 +919,7 @@ export function buildNextDayDecision(
 ): NonNullable<SessionReport["nextDayDecision"]> {
   const averageRpeValue = averageReportRpe(report);
   const droppedSetCount = countDroppedSets(report);
-  const mealSummary = summarizeMealAdherence(normalizeMealLog(report.mealLog));
+  const mealSummary = summarizeMealAdherence(normalizeMealLog(report.mealLog), report.mealSlots);
 
   const highStress =
     report.fatigue >= plan.deloadRule.consecutiveHighFatigueDays ||
@@ -1052,7 +1065,8 @@ export function buildStrictDailyReviewMarkdown(params: {
         deviationSummary.fatsG,
       )
     : 0;
-  const mealSummary = summarizeMealAdherence(normalizedMealLog);
+  const activeMealSlots = normalizeMealSlots(report.mealSlots);
+  const mealSummary = summarizeMealAdherence(normalizedMealLog, activeMealSlots);
 
   let overloadStatus = "达标";
   if (nextDayDecision.trainingReadiness === "deload") {
@@ -1076,13 +1090,12 @@ export function buildStrictDailyReviewMarkdown(params: {
   const effectivePostWorkout = parsedMealLog ? resolvePostWorkoutEntry(parsedMealLog) : undefined;
   const mealBreakdownLines =
     nutritionSummary && parsedMealLog
-      ? [
-          buildMealNutritionLine("早餐", parsedMealLog.breakfast.nutritionEstimate),
-          buildMealNutritionLine("午餐", parsedMealLog.lunch.nutritionEstimate),
-          buildMealNutritionLine("晚餐", parsedMealLog.dinner.nutritionEstimate),
-          buildMealNutritionLine("练前", parsedMealLog.preWorkout.nutritionEstimate),
-          buildMealNutritionLine("练后", effectivePostWorkout?.nutritionEstimate),
-        ]
+      ? activeMealSlots.map((slot) =>
+          buildMealNutritionLine(
+            mealSlotLabels[slot],
+            slot === "postWorkout" ? effectivePostWorkout?.nutritionEstimate : parsedMealLog[slot].nutritionEstimate,
+          ),
+        )
       : ["营养还在计算中，暂不展示数值拆解。"];
   const dataCheckLines = nutritionSummary
     ? [

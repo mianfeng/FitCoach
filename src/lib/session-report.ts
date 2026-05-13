@@ -4,6 +4,8 @@ import type {
   MealAdherenceStatus,
   MealLog,
   MealLogEntry,
+  MealPrescription,
+  MealSlot,
   PostWorkoutSource,
   ReportAdherence,
   SessionReport,
@@ -20,9 +22,12 @@ type LegacyMealLog = {
 
 type MaybeStructuredMealLog = MealLog | LegacyMealLog | null | undefined;
 
-export const mealSlotOrder = ["breakfast", "lunch", "dinner", "preWorkout", "postWorkout"] as const;
+export type { MealSlot };
 
-export type MealSlot = (typeof mealSlotOrder)[number];
+export const mealSlotOrder = ["breakfast", "lunch", "dinner", "preWorkout", "postWorkout"] as const satisfies readonly MealSlot[];
+export const defaultTrainingMealSlots = mealSlotOrder;
+export const defaultRestMealSlots = ["breakfast", "lunch", "dinner"] as const satisfies readonly MealSlot[];
+export const cutTrainingMealSlots = ["breakfast", "preWorkout", "postWorkout"] as const satisfies readonly MealSlot[];
 
 export const mealSlotLabels: Record<MealSlot, string> = {
   breakfast: "早餐",
@@ -31,6 +36,20 @@ export const mealSlotLabels: Record<MealSlot, string> = {
   preWorkout: "练前餐",
   postWorkout: "练后餐",
 };
+
+export function normalizeMealSlots(slots: readonly MealSlot[] | undefined): MealSlot[] {
+  const unique = (slots ?? mealSlotOrder).filter((slot, index, values) => mealSlotOrder.includes(slot) && values.indexOf(slot) === index);
+  return unique.length ? unique : [...mealSlotOrder];
+}
+
+export function resolveMealSlotsForPrescription(mealPrescription: MealPrescription): MealSlot[] {
+  const explicitSlots = mealPrescription.meals.map((meal) => meal.slot).filter((slot): slot is MealSlot => Boolean(slot));
+  if (explicitSlots.length) {
+    return normalizeMealSlots(explicitSlots);
+  }
+
+  return mealPrescription.dayType === "rest" ? [...defaultRestMealSlots] : [...defaultTrainingMealSlots];
+}
 
 export const mealAdherenceLabels: Record<MealAdherenceStatus, string> = {
   on_plan: "按计划",
@@ -132,26 +151,35 @@ export function normalizeMealLog(input: MaybeStructuredMealLog): MealLog | undef
   };
 }
 
-export function buildMealLogForSubmit(mealLog: MealLog): MealLog {
-  if (mealLog.postWorkoutSource === "dedicated") {
-    return mealLog;
+export function buildMealLogForSubmit(mealLog: MealLog, activeSlots: readonly MealSlot[] = mealSlotOrder): MealLog {
+  const slots = normalizeMealSlots(activeSlots);
+  const linkedSlot = mealLog.postWorkoutSource === "dedicated" ? "postWorkout" : mealLog.postWorkoutSource;
+  const normalizedMealLog = slots.includes(linkedSlot) ? mealLog : { ...mealLog, postWorkoutSource: "dedicated" as const };
+  const shouldMirrorPostWorkout = slots.includes("postWorkout") && normalizedMealLog.postWorkoutSource !== "dedicated";
+
+  if (!shouldMirrorPostWorkout) {
+    return normalizedMealLog;
+  }
+
+  if (normalizedMealLog.postWorkoutSource === "dedicated") {
+    return normalizedMealLog;
   }
 
   const mirrored =
-    mealLog.postWorkoutSource === "lunch"
-      ? mealLog.lunch
-      : mealLog.postWorkoutSource === "dinner"
-        ? mealLog.dinner
-        : mealLog.postWorkout;
+    normalizedMealLog.postWorkoutSource === "lunch"
+      ? normalizedMealLog.lunch
+      : normalizedMealLog.postWorkoutSource === "dinner"
+        ? normalizedMealLog.dinner
+        : normalizedMealLog.postWorkout;
 
   return {
-    ...mealLog,
+    ...normalizedMealLog,
     postWorkout: {
       ...mirrored,
       content: mirrored.content,
       adherence: mirrored.adherence,
       deviationNote:
-        mirrored.deviationNote?.trim() || `${mealSlotLabels[mealLog.postWorkoutSource]}兼作练后餐`,
+        mirrored.deviationNote?.trim() || `${mealSlotLabels[normalizedMealLog.postWorkoutSource]}兼作练后餐`,
     },
   };
 }
@@ -164,18 +192,18 @@ export function resolvePostWorkoutEntry(mealLog: MealLog) {
   return mealLog.postWorkoutSource === "lunch" ? mealLog.lunch : mealLog.dinner;
 }
 
-export function countFilledMealSlots(mealLog?: MealLog) {
+export function countFilledMealSlots(mealLog?: MealLog, activeSlots: readonly MealSlot[] = mealSlotOrder) {
   if (!mealLog) {
     return 0;
   }
 
-  return mealSlotOrder.filter((slot) => {
+  return normalizeMealSlots(activeSlots).filter((slot) => {
     const entry = slot === "postWorkout" ? resolvePostWorkoutEntry(mealLog) : mealLog[slot];
     return entry.content.trim().length > 0 || entry.adherence === "missed";
   }).length;
 }
 
-export function summarizeMealAdherence(mealLog?: MealLog) {
+export function summarizeMealAdherence(mealLog?: MealLog, activeSlots: readonly MealSlot[] = mealSlotOrder) {
   const summary = {
     onPlan: 0,
     adjusted: 0,
@@ -186,7 +214,7 @@ export function summarizeMealAdherence(mealLog?: MealLog) {
     return summary;
   }
 
-  for (const slot of mealSlotOrder) {
+  for (const slot of normalizeMealSlots(activeSlots)) {
     const entry = slot === "postWorkout" ? resolvePostWorkoutEntry(mealLog) : mealLog[slot];
     if (entry.adherence === "on_plan") {
       summary.onPlan += 1;
@@ -202,7 +230,10 @@ export function summarizeMealAdherence(mealLog?: MealLog) {
   return summary;
 }
 
-export function deriveDietAdherence(mealLog?: MealLog): ReportAdherence | undefined {
+export function deriveDietAdherence(
+  mealLog?: MealLog,
+  activeSlots: readonly MealSlot[] = mealSlotOrder,
+): ReportAdherence | undefined {
   if (!mealLog) {
     return undefined;
   }
@@ -213,7 +244,9 @@ export function deriveDietAdherence(mealLog?: MealLog): ReportAdherence | undefi
     missed: 0,
   };
 
-  const entries = mealSlotOrder.map((slot) => (slot === "postWorkout" ? resolvePostWorkoutEntry(mealLog) : mealLog[slot]));
+  const entries = normalizeMealSlots(activeSlots).map((slot) =>
+    slot === "postWorkout" ? resolvePostWorkoutEntry(mealLog) : mealLog[slot],
+  );
   const score = entries.reduce((sum, entry) => {
     const completenessPenalty = entry.content.trim().length > 0 || entry.adherence === "missed" ? 1 : 0.4;
     return sum + weights[entry.adherence] * completenessPenalty;
@@ -239,8 +272,9 @@ export function normalizeStoredSessionReport(report: Omit<SessionReport, "mealLo
     reportVersion: inferredVersion,
     scheduledDate: report.scheduledDate ?? report.date,
     mealLog,
+    mealSlots: normalizeMealSlots(report.mealSlots),
     trainingReportText: report.trainingReportText ?? "",
-    dietAdherence: report.dietAdherence ?? deriveDietAdherence(mealLog),
+    dietAdherence: report.dietAdherence ?? deriveDietAdherence(mealLog, report.mealSlots),
     nextDayDecision: report.nextDayDecision
       ? {
           trainingReadiness: report.nextDayDecision.trainingReadiness,

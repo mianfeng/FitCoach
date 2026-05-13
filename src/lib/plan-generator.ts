@@ -21,21 +21,30 @@ function buildMealBlocks(
   mode: "training" | "rest",
   examples: string[],
   mealSplit: number[],
+  options: { cutPhase?: boolean } = {},
 ): MealPrescription["meals"] {
+  if (options.cutPhase && mode === "training") {
+    return [
+      { label: "早餐", slot: "breakfast", sharePercent: 30, examples: examples.slice(0, 2) },
+      { label: "练前餐", slot: "preWorkout", sharePercent: 20, examples: ["馒头", "面包", "香蕉", "快碳饮料"] },
+      { label: "练后餐", slot: "postWorkout", sharePercent: 50, examples: ["米饭", "瘦肉", "牛奶", "高碳主食"] },
+    ];
+  }
+
   if (mode === "rest") {
     return [
-      { label: "早餐", sharePercent: 20, examples: examples.slice(0, 2) },
-      { label: "午餐", sharePercent: 50, examples: examples.slice(1, 3) },
-      { label: "晚餐", sharePercent: 30, examples: [examples[0], ...examples.slice(2, 4)].filter(Boolean) },
+      { label: "早餐", slot: "breakfast", sharePercent: 20, examples: examples.slice(0, 2) },
+      { label: "午餐", slot: "lunch", sharePercent: 50, examples: examples.slice(1, 3) },
+      { label: "晚餐", slot: "dinner", sharePercent: 30, examples: [examples[0], ...examples.slice(2, 4)].filter(Boolean) },
     ];
   }
 
   const [breakfast, lunch, preworkout, postworkout] = mealSplit;
   return [
-    { label: "早餐", sharePercent: breakfast, examples: examples.slice(0, 2) },
-    { label: "其他餐", sharePercent: lunch, examples: examples.slice(1, 3) },
-    { label: "练前餐", sharePercent: preworkout, examples: ["馒头", "面包", "香蕉", "快碳饮料"] },
-    { label: "练后餐", sharePercent: postworkout, examples: ["米饭", "瘦肉", "牛奶", "高碳主食"] },
+    { label: "早餐", slot: "breakfast", sharePercent: breakfast, examples: examples.slice(0, 2) },
+    { label: "其他餐", slot: "lunch", sharePercent: lunch, examples: examples.slice(1, 3) },
+    { label: "练前餐", slot: "preWorkout", sharePercent: preworkout, examples: ["馒头", "面包", "香蕉", "快碳饮料"] },
+    { label: "练后餐", slot: "postWorkout", sharePercent: postworkout, examples: ["米饭", "瘦肉", "牛奶", "高碳主食"] },
   ];
 }
 
@@ -50,6 +59,7 @@ function buildSnapshotMealPrescription(input: PlanSetupInput, mode: "training" |
         mode,
         mode === "training" ? input.plan.mealStrategy.trainingExamples : input.plan.mealStrategy.restExamples,
         input.plan.mealStrategy.mealSplit,
+        { cutPhase: true },
       ),
       guidance: [
         mode === "training"

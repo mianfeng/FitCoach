@@ -7,6 +7,7 @@ const planKindSchema = z.enum(["formal_training", "stop_training"]);
 const stopTrainingTypeSchema = z.enum(["recovery", "life_admin", "weight_control"]);
 const exerciseRoleSchema = z.enum(["main", "accessory"]);
 const postWorkoutSourceSchema = z.enum(["dedicated", "lunch", "dinner"]);
+const mealSlotSchema = z.enum(["breakfast", "lunch", "dinner", "preWorkout", "postWorkout"]);
 const mealAdherenceSchema = z.enum(["on_plan", "adjusted", "missed"]);
 const planCalendarSlotSchema = z.union([dayCodeSchema, z.literal("rest")]);
 const mealCookingMethodSchema = z.enum([
@@ -290,6 +291,7 @@ const sessionReportBaseSchema = z.object({
     z.literal(5),
   ]).optional(),
   fatigue: z.number().min(1).max(10),
+  mealSlots: z.array(mealSlotSchema).optional(),
   trainingReportText: z.string().default(""),
   dailyReviewMarkdown: z.string().optional(),
   painNotes: z.string().optional(),

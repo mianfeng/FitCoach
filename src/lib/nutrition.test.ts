@@ -293,6 +293,36 @@ describe("nutrition summarizer", () => {
       ) / 10,
     );
   });
+
+  it("summarizes only active cut training meal slots", () => {
+    const mealLog = createEmptyMealLog();
+    mealLog.breakfast.content = "100g米饭";
+    mealLog.lunch.content = "100g鱼肉";
+    mealLog.preWorkout.content = "100g米饭";
+    mealLog.postWorkout.content = "100g米饭";
+
+    const withLunch = summarizeReportNutrition(mealLog, {
+      calories: 2000,
+      proteinG: 140,
+      carbsG: 220,
+      fatsG: 60,
+    });
+    const cutTraining = summarizeReportNutrition(
+      mealLog,
+      {
+        calories: 2000,
+        proteinG: 140,
+        carbsG: 220,
+        fatsG: 60,
+      },
+      {
+        activeMealSlots: ["breakfast", "preWorkout", "postWorkout"],
+      },
+    );
+
+    expect(cutTraining.nutritionTotals.calories).toBeLessThan(withLunch.nutritionTotals.calories);
+    expect(cutTraining.nutritionTotals.proteinG).toBeLessThan(withLunch.nutritionTotals.proteinG);
+  });
 });
 
 describe("nutrition library", () => {

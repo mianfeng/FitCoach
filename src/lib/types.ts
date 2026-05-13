@@ -10,6 +10,7 @@ export type ReportAdherence = 1 | 2 | 3 | 4 | 5;
 export type SchedulePattern = "3on1off";
 export type PlanCalendarSlot = DayCode | "rest";
 export type PostWorkoutSource = "dedicated" | "lunch" | "dinner";
+export type MealSlot = "breakfast" | "lunch" | "dinner" | "preWorkout" | "postWorkout";
 export type MealAdherenceStatus = "on_plan" | "adjusted" | "missed";
 export type TrainingReadiness = "push" | "hold" | "deload";
 export type MealCookingMethod =
@@ -187,6 +188,7 @@ export interface MealBlock {
   label: string;
   sharePercent: number;
   examples: string[];
+  slot?: MealSlot;
 }
 
 export interface MealPrescription {
@@ -321,6 +323,7 @@ export interface SessionReport {
   dietAdherence?: ReportAdherence;
   fatigue: number;
   mealLog?: MealLog;
+  mealSlots?: MealSlot[];
   trainingReportText?: string;
   dailyReviewMarkdown?: string;
   painNotes?: string;

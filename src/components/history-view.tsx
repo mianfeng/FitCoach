@@ -9,6 +9,7 @@ import {
   mealCookingMethodLabels,
   mealSlotLabels,
   normalizeMealLog,
+  normalizeMealSlots,
   resolvePostWorkoutEntry,
 } from "@/lib/session-report";
 import type {
@@ -172,6 +173,7 @@ function summarizeMealLog(report: SessionReport) {
   if (!mealLog) {
     return [];
   }
+  const mealSlots = normalizeMealSlots(report.mealSlots);
 
   const postWorkoutLine =
     mealLog.postWorkoutSource === "lunch"
@@ -180,13 +182,12 @@ function summarizeMealLog(report: SessionReport) {
         ? `训练后餐：晚餐 (${mealLog.dinner.content || "未填写"})`
         : `训练后餐：${resolvePostWorkoutEntry(mealLog).content || "未填写"}`;
 
-  return [
-    `早餐：${mealLog.breakfast.content || "未填写"}`,
-    `午餐：${mealLog.lunch.content || "未填写"}`,
-    `晚餐：${mealLog.dinner.content || "未填写"}`,
-    `训练前餐：${mealLog.preWorkout.content || "未填写"}`,
-    postWorkoutLine,
-  ];
+  return mealSlots.map((slot) => {
+    if (slot === "postWorkout") {
+      return postWorkoutLine;
+    }
+    return `${mealSlotLabels[slot]}：${mealLog[slot].content || "未填写"}`;
+  });
 }
 
 function formatNutritionLine(report: Pick<SessionReport, "nutritionTotals">) {
@@ -282,7 +283,7 @@ function renderStructuredReportBody(report: SessionReport) {
           ) : null}
 
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {(["breakfast", "lunch", "dinner", "preWorkout", "postWorkout"] as const).map((slot) => {
+            {normalizeMealSlots(report.mealSlots).map((slot) => {
               const entry = slot === "postWorkout" ? resolvePostWorkoutEntry(mealLog) : mealLog[slot];
               return (
                 <div key={slot} className="rounded-[14px] border border-black/10 bg-white px-3 py-3">

@@ -14,6 +14,7 @@ import {
   type MealSlot,
   mealSlotLabels,
   normalizeMealLog,
+  resolveMealSlotsForPrescription,
   resolvePostWorkoutEntry,
 } from "@/lib/session-report";
 import { shiftIsoDate } from "@/lib/utils";
@@ -35,6 +36,7 @@ type ReportDraft = {
   performedDay: SessionReport["performedDay"];
   exerciseResults: ExerciseResult[];
   mealLog: MealLog;
+  mealSlots: MealSlot[];
   trainingReportText: string;
   bodyWeightKg: number;
   sleepHours: number;
@@ -100,8 +102,6 @@ const MEAL_SLOTS: Array<{ key: keyof Omit<MealLog, "postWorkoutSource">; label: 
   { key: "preWorkout", label: "练前餐" },
   { key: "postWorkout", label: "练后餐" },
 ];
-
-const REST_DAY_MEAL_SLOTS: MealSlot[] = ["breakfast", "lunch", "dinner"];
 
 const COOKING_METHOD_OPTIONS: Array<{ value: MealCookingMethod; label: string }> = [
   { value: "poached_steamed", label: mealCookingMethodLabels.poached_steamed },
@@ -296,6 +296,7 @@ function buildReportDraft(
         ? existingReport.exerciseResults
         : buildDefaultExerciseResults(brief),
     mealLog: existingReport?.mealLog ?? createEmptyMealLog(),
+    mealSlots: existingReport?.mealSlots ?? resolveMealSlotsForPrescription(brief.mealPrescription),
     trainingReportText: existingReport?.trainingReportText ?? "",
     bodyWeightKg: existingReport?.bodyWeightKg ?? snapshot.profile.currentWeightKg,
     sleepHours: existingReport?.sleepHours ?? snapshot.profile.sleepTargetHours,
@@ -505,11 +506,11 @@ export function HomeDashboard({
     reschedules: trainingReschedules,
     today,
   });
-  const hasMealContent = MEAL_SLOTS.some((slot) => reportDraft.mealLog[slot.key].content.trim().length > 0);
+  const activeMealSlots = resolveMealSlotsForPrescription(todayBrief.mealPrescription);
+  const mealTargetCount = activeMealSlots.length;
+  const hasMealContent = activeMealSlots.some((slot) => reportDraft.mealLog[slot].content.trim().length > 0);
   const quickNutritionDishes = snapshot.nutritionDishes.slice(0, 8);
-  const visibleMealSlots = todayBrief.isRestDay
-    ? MEAL_SLOTS.filter((slot) => REST_DAY_MEAL_SLOTS.includes(slot.key as MealSlot))
-    : MEAL_SLOTS;
+  const visibleMealSlots = MEAL_SLOTS.filter((slot) => activeMealSlots.includes(slot.key as MealSlot));
   const recentMealSuggestions: Record<MealSlot, Array<{ content: string; date: string }>> = {
     breakfast: buildRecentMealSuggestions(reportHistory, "breakfast", today),
     lunch: buildRecentMealSuggestions(reportHistory, "lunch", today),
@@ -536,7 +537,7 @@ export function HomeDashboard({
       exercise.performed !== false ||
       (exercise.notes?.trim().length ?? 0) > 0,
   ).length;
-  const filledMealCount = countFilledMealSlots(reportDraft.mealLog);
+  const filledMealCount = countFilledMealSlots(reportDraft.mealLog, activeMealSlots);
   const recoveryNoteCount = [reportDraft.painNotes, reportDraft.recoveryNote, reportDraft.trainingReportText].filter(
     (item) => item.trim().length > 0,
   ).length;
@@ -552,8 +553,8 @@ export function HomeDashboard({
       : "先从今天实际完成的动作开始填写，按真实执行情况记录即可。";
   const nutritionSummary = filledMealCount
     ? hasReadyNutrition
-      ? `已填写 ${filledMealCount}/5 个餐次，营养估算已可查看。`
-      : `已填写 ${filledMealCount}/5 个餐次，保存草稿或提交后会重新计算营养。`
+      ? `已填写 ${filledMealCount}/${mealTargetCount} 个餐次，营养估算已可查看。`
+      : `已填写 ${filledMealCount}/${mealTargetCount} 个餐次，保存草稿或提交后会重新计算营养。`
     : "先填写今天已经吃掉的餐次，剩余餐次可以晚些补录。";
   const recoverySummary = recoverySignalsTouched
     ? recoveryNoteCount
@@ -561,8 +562,8 @@ export function HomeDashboard({
       : "体重、睡眠和疲劳基线已就绪，可以补充异常或时间错位说明。"
     : "补充恢复感受、疼痛或时间错位，会让点评更准确。";
   const actionSummary = todayBrief.isRestDay
-    ? `恢复日记录 · 餐次 ${filledMealCount}/5 · 补充备注 ${recoveryNoteCount}`
-    : `动作 ${loggedExerciseCount}/${exerciseTargetCount} · 餐次 ${filledMealCount}/5 · 恢复备注 ${recoveryNoteCount}`;
+    ? `恢复日记录 · 餐次 ${filledMealCount}/${mealTargetCount} · 补充备注 ${recoveryNoteCount}`
+    : `动作 ${loggedExerciseCount}/${exerciseTargetCount} · 餐次 ${filledMealCount}/${mealTargetCount} · 恢复备注 ${recoveryNoteCount}`;
 
   useEffect(() => {
     const report = findReportForDate(reportHistory, today);
@@ -770,7 +771,8 @@ export function HomeDashboard({
         performedDay: todayBrief.calendarSlot,
         exerciseResults: todayBrief.isRestDay ? [] : reportDraft.exerciseResults,
         completed: true,
-        mealLog: buildMealLogForSubmit(reportDraft.mealLog),
+        mealSlots: activeMealSlots,
+        mealLog: buildMealLogForSubmit(reportDraft.mealLog, activeMealSlots),
       };
 
       const data = await postJson<SessionReportResponse>("/api/session-report", payload);
@@ -836,7 +838,8 @@ export function HomeDashboard({
         performedDay: todayBrief.calendarSlot,
         exerciseResults: buildExerciseResultsForSubmit(false),
         completed: false,
-        mealLog: buildMealLogForSubmit(reportDraft.mealLog),
+        mealSlots: activeMealSlots,
+        mealLog: buildMealLogForSubmit(reportDraft.mealLog, activeMealSlots),
       };
 
       const data = await postJson<SessionReportResponse>("/api/session-report", payload);
@@ -1492,7 +1495,7 @@ export function HomeDashboard({
             <div className="space-y-4">
             <div className="text-[11px] uppercase tracking-[0.22em] text-black/42">Meal Execution</div>
             <h3 className="mt-1 text-lg font-semibold text-[#151811]">餐次执行</h3>
-            {!todayBrief.isRestDay ? (
+            {!todayBrief.isRestDay && (activeMealSlots.includes("lunch") || activeMealSlots.includes("dinner")) ? (
               <div className="mt-4 flex flex-wrap gap-2">
                 {POST_WORKOUT_SOURCE_OPTIONS.map((option) => (
                   <button
@@ -2068,5 +2071,3 @@ export function HomeDashboard({
     </div>
   );
 }
-
-

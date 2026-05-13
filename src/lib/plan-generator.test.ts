@@ -70,6 +70,11 @@ describe("plan snapshots", () => {
       fatsG: 48,
       carbsG: 150,
     });
+    expect(trainingSnapshot?.mealPrescription.meals.map((meal) => `${meal.slot}:${meal.sharePercent}`)).toEqual([
+      "breakfast:30",
+      "preWorkout:20",
+      "postWorkout:50",
+    ]);
   });
 
   it("only updates current and future snapshots after a plan change", () => {

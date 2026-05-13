@@ -35,6 +35,10 @@ export function roundToIncrement(value: number, increment = 2.5) {
   return Math.round(value / increment) * increment;
 }
 
+export function roundPrescriptionWeightKg(value: number) {
+  return roundToIncrement(value, 0.5);
+}
+
 export function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }

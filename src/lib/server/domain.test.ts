@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { defaultPlan, defaultProfile, defaultTemplates } from "@/lib/seed";
+import { buildDefaultPlanSetup, defaultPlan, defaultProfile, defaultTemplates } from "@/lib/seed";
 import {
   buildChatContextBundle,
   buildDailyBrief,
@@ -80,6 +80,82 @@ describe("daily brief", () => {
     expect(result.brief.isRestDay).toBe(false);
     expect(result.brief.workoutPrescription.exercises.length).toBeGreaterThan(0);
     expect(result.brief.mealPrescription.macros.carbsG).toBeGreaterThan(0);
+  });
+
+  it("uses the regenerated starting weight for a new plan before history-based progression", () => {
+    const setup = buildDefaultPlanSetup();
+    const plan = {
+      ...setup.plan,
+      startDate: "2026-03-12",
+      startingIntensityPct: 60,
+      calendarEntries: [],
+      baseCalendarEntries: [],
+    };
+    const profile = {
+      ...setup.profile,
+      oneRepMaxes: {
+        ...setup.profile.oneRepMaxes,
+        bench_press: 45,
+      },
+    };
+    const templates = setup.templates.map((template) =>
+      template.dayCode === "A"
+        ? {
+            ...template,
+            exercises: template.exercises.map((exercise) =>
+              exercise.name === "杠铃卧推"
+                ? {
+                    ...exercise,
+                    oneRepMaxKg: 45,
+                    oneRepMaxRef: "bench_press",
+                    baseWeightKg: 27,
+                  }
+                : exercise,
+            ),
+          }
+        : template,
+    );
+    const history: SessionReport[] = [
+      {
+        id: "old-plan-report",
+        reportVersion: 2,
+        date: "2026-03-10",
+        performedDay: "A",
+        exerciseResults: [
+          {
+            exerciseName: "杠铃卧推",
+            performed: true,
+            targetSets: 5,
+            targetReps: "10",
+            actualSets: 5,
+            actualReps: "10",
+            topSetWeightKg: 35,
+            rpe: 8,
+            droppedSets: false,
+          },
+        ],
+        bodyWeightKg: 60,
+        sleepHours: 7.5,
+        fatigue: 4,
+        completed: true,
+        createdAt: "2026-03-10T10:00:00.000Z",
+      },
+    ];
+
+    const result = buildDailyBrief(
+      {
+        date: "2026-03-12",
+        userQuestion: "",
+      },
+      profile,
+      plan,
+      templates,
+      history,
+      null,
+    );
+
+    const benchPress = result.brief.workoutPrescription.exercises.find((exercise) => exercise.name === "杠铃卧推");
+    expect(benchPress?.suggestedWeightKg).toBe(27);
   });
 
   it("uses 253 meal split on rest days", () => {

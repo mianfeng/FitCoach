@@ -11,7 +11,7 @@ import type {
 import { reindexCalendarEntries } from "@/lib/plan-calendar";
 import { DEFAULT_CUT_MACRO_TEMPLATE, normalizeExerciseRolesForTemplates } from "@/lib/plan-presets";
 import { applyCurrentTemplateLayout } from "@/lib/template-layout";
-import { clamp, roundToIncrement, shiftIsoDate, uid } from "@/lib/utils";
+import { clamp, roundPrescriptionWeightKg, roundToIncrement, shiftIsoDate, uid } from "@/lib/utils";
 
 const nonDeloadRepStyles = ["5x10", "4x10", "4x8", "3x8", "5x5", "3x5", "3x3", "3x3"];
 const nonDeloadLabels = ["初期", "初期", "中期", "中期", "冲刺期", "冲刺期", "极限期", "极限期"];
@@ -201,7 +201,7 @@ function buildGeneratedExercise(
   const percentageOf1RM = exercise.percentageOf1RM ?? 1;
   const generatedBaseWeight =
     !exercise.usesBodyweight && oneRepMaxKg && oneRepMaxKg > 0
-      ? roundToIncrement(oneRepMaxKg * (startingIntensityPct / 100) * percentageOf1RM, incrementKg)
+      ? roundPrescriptionWeightKg(oneRepMaxKg * (startingIntensityPct / 100) * percentageOf1RM)
       : undefined;
 
   return {

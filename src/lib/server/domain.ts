@@ -34,7 +34,7 @@ import {
   summarizeMealAdherence,
 } from "@/lib/session-report";
 import { DEFAULT_CUT_MACRO_TEMPLATE } from "@/lib/plan-presets";
-import { average, diffIsoDays, isoToday, roundToIncrement, uid } from "@/lib/utils";
+import { average, diffIsoDays, isoToday, roundPrescriptionWeightKg, roundToIncrement, uid } from "@/lib/utils";
 
 function sortReportsDesc(reports: SessionReport[]) {
   return [...reports].sort((left, right) => right.date.localeCompare(left.date));
@@ -180,11 +180,11 @@ function suggestExerciseWeight(
 ) {
   let suggested = exercise.baseWeightKg;
 
-  if (exercise.progressionModel === "percentage") {
+  if (suggested == null && exercise.progressionModel === "percentage") {
     const oneRepMax = exercise.oneRepMaxKg ?? (exercise.oneRepMaxRef ? profile.oneRepMaxes[exercise.oneRepMaxRef] : undefined);
     if (oneRepMax) {
       const percentage = exercise.percentageOf1RM ?? 1;
-      suggested = roundToIncrement(oneRepMax * phaseIntensity * percentage, exercise.incrementKg || 2.5);
+      suggested = roundPrescriptionWeightKg(oneRepMax * phaseIntensity * percentage);
     }
   }
 
@@ -551,7 +551,9 @@ export function buildDailyBrief(
 
   const scheduledDay = fallbackScheduledDay;
   const weeklyPhase = getCurrentWeeklyPhase(plan, request.date);
-  const applicableReports = reports.filter((report) => report.date < request.date);
+  const applicableReports = reports.filter(
+    (report) => report.date < request.date && isReportWithinCurrentPlan(report, plan),
+  );
   const template = scheduledDay ? getExerciseTemplate(scheduledDay, templates) : null;
   if (scheduledDay && !template) {
     throw new Error(`Missing workout template for ${scheduledDay}`);
@@ -655,6 +657,11 @@ function countDroppedSets(report: SessionReport) {
 
 function getPerformedExerciseCount(report: SessionReport) {
   return (report.exerciseResults ?? []).filter((item) => isExercisePerformed(item)).length;
+}
+
+function isReportWithinCurrentPlan(report: SessionReport, plan: LongTermPlan) {
+  const scheduledDate = report.scheduledDate ?? report.date;
+  return scheduledDate >= plan.startDate;
 }
 
 export function describeMealExecution(report: SessionReport) {

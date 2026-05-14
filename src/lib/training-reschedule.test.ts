@@ -1,10 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import { defaultPlan } from "@/lib/seed";
-import { findReportForDate, getCompletedScheduledDateSet, listMissedTrainingEntries } from "@/lib/training-reschedule";
+import {
+  findReportForDate,
+  getCompletedScheduledDateSet,
+  listMissedTrainingEntries,
+  trainingRescheduleErrorMessages,
+} from "@/lib/training-reschedule";
 import type { LongTermPlan, SessionReport, TrainingReschedule } from "@/lib/types";
 
 describe("training reschedule helpers", () => {
+  it("keeps user-facing error messages readable", () => {
+    const mojibakePattern = /[閸鈧鍋鐩鏉濞銆�]/;
+
+    for (const message of Object.values(trainingRescheduleErrorMessages)) {
+      expect(message).toMatch(/[一-龥]/);
+      expect(message).not.toMatch(mojibakePattern);
+    }
+  });
+
   it("matches reports by scheduledDate when viewing the original plan day", () => {
     const reports: SessionReport[] = [
       {

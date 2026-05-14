@@ -5,7 +5,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { summarizeReportNutrition } from "@/lib/nutrition";
 import { env } from "@/lib/server/env";
 import type { InferredTokenEstimate } from "@/lib/nutrition";
-import { describeTrainingReadiness } from "@/lib/server/domain";
+import { buildDailyReviewCoachingFacts, describeTrainingReadiness } from "@/lib/server/domain";
 import { mealSlotLabels, normalizeMealLog, resolvePostWorkoutEntry, summarizeMealAdherence } from "@/lib/session-report";
 import type {
   ChatContextBundle,
@@ -79,10 +79,10 @@ function hasStrictCoachShape(input: string) {
 function hasStrictDailyReviewShape(input: string) {
   const normalized = stripCodeFence(input);
   return (
-    normalized.includes("1. 📊 数据核算") &&
-    normalized.includes("2. 🏋️ 训练评估") &&
-    normalized.includes("3. 🎯 质量评级") &&
-    normalized.includes("4. ⚡ 行动建议")
+    normalized.includes("1. 今日结论") &&
+    normalized.includes("2. 关键证据") &&
+    normalized.includes("3. 最大瓶颈") &&
+    normalized.includes("4. 明天执行")
   );
 }
 
@@ -285,6 +285,11 @@ export async function generateGeminiDailyReview(params: {
     (params.report.nutritionTotals && params.report.nutritionGap ? "ready" : "pending");
   const nutritionPending = nutritionStatus === "pending";
   const targetCalories = params.targetMacros.proteinG * 4 + params.targetMacros.carbsG * 4 + params.targetMacros.fatsG * 9;
+  const coachingFacts = buildDailyReviewCoachingFacts({
+    report: params.report,
+    targetMacros: params.targetMacros,
+    nextDayDecision: params.report.nextDayDecision,
+  });
   const mealBreakdownLines = !nutritionPending && mealLog
     ? activeMealSlots.map((slot) => {
         const entry = slot === "postWorkout" ? effectivePostWorkout : mealLog[slot];
@@ -298,31 +303,36 @@ export async function generateGeminiDailyReview(params: {
     : ["Nutrition is pending AI computation. Do not fabricate numeric meal breakdown."];
 
   const prompt = [
-    "You are FitCoach's daily review editor.",
+    "You are FitCoach's daily review diagnostician.",
     "Reply in Simplified Chinese.",
-    "You must polish the existing draft review only.",
+    "Do not polish the draft mechanically. Use the structured facts to decide the main bottleneck and the next action.",
     "You must output strictly in this markdown structure and must not add any extra paragraph:",
-    "1. 📊 数据核算",
-    "- 估算摄入：总热量(kcal) / 蛋白质(g) / 碳水(g) / 脂肪(g)",
-    "- 缺口分析：距离目标还差多少，或超标多少",
-    "- 每餐拆解：早餐/午餐/晚餐/练前/练后，逐餐给出 kcal 与 P/C/F",
-    "2. 🏋️ 训练评估",
-    "- 超负荷状态：[达标 / 停滞 / 需减载]",
-    "- 简要评价：（一句话点评今日训练质量）",
-    "3. 🎯 质量评级",
-    "- [🟢 完美 / 🟡 警告 / 🔴 灾难]（仅保留一个，并附一句理由）",
-    "4. ⚡ 行动建议",
-    "- 仅限1-3条",
-    "- 必须具体、直接、可执行",
-    "Rating rules:",
-    "- 🟢 完美：整体执行稳定，营养大体在计划范围内，训练和恢复没有明显问题。",
-    "- 🟡 警告：存在1-2个需要纠偏的点，例如单项营养偏差较大、训练质量一般、餐次缺失或恢复一般。",
-    "- 🔴 灾难：只在出现多项明显偏离时使用，例如多餐缺失、训练明显崩盘、恢复很差并伴随大幅营养偏离。",
-    "Do not add theory dump. Do not add narrative before section 1 or after section 4.",
+    "1. 今日结论",
+    "- One direct coaching conclusion. Include the rating and tomorrow readiness if relevant.",
+    "2. 关键证据",
+    "- 3 to 5 bullets. Use concrete recorded data, not generic theory.",
+    "3. 最大瓶颈",
+    "- One bullet only. Name the single highest-priority problem that limits tomorrow's execution.",
+    "4. 明天执行",
+    "- 1 to 3 bullets only. Every bullet must be specific and executable.",
+    "Rules:",
+    "- Do not ask for data that is already present in the report.",
+    "- Do not say broad advice like 保持饮食/注意休息 unless it is tied to a concrete meal, lift, pain note, sleep, fatigue, or macro gap.",
+    "- Prefer correcting the largest bottleneck over listing every possible issue.",
+    "- If pain or discomfort is recorded, treat it as higher priority than normal progression.",
     nutritionPending
-      ? "If nutrition status is pending, section 1 must explicitly state nutrition is pending AI computation and must not include fabricated numeric totals or gaps."
-      : "Use provided numeric nutrition data for section 1. Calories must stay consistent with listed P/C/F using the 4/4/9 rule.",
+      ? "Nutrition status is pending. State that numeric nutrition is pending and do not fabricate totals or gaps."
+      : "Use provided numeric nutrition data. Calories must stay consistent with listed P/C/F using the 4/4/9 rule.",
     "",
+    "Computed coaching facts:",
+    `Conclusion: ${coachingFacts.conclusion}`,
+    "Evidence:",
+    ...coachingFacts.evidence.map((item) => `- ${item}`),
+    `Primary bottleneck: ${coachingFacts.bottleneck}`,
+    "Recommended actions:",
+    ...coachingFacts.actionItems.map((item) => `- ${item}`),
+    "",
+    "Raw report context:",
     `Plan label: ${params.planLabel}`,
     `Workout title: ${params.workoutTitle}`,
     `Target intake: ${targetCalories} kcal / ${params.targetMacros.proteinG} g protein / ${params.targetMacros.carbsG} g carbs / ${params.targetMacros.fatsG} g fats`,
@@ -341,9 +351,11 @@ export async function generateGeminiDailyReview(params: {
     `Body weight: ${params.report.bodyWeightKg} kg`,
     `Sleep: ${params.report.sleepHours} h`,
     `Fatigue: ${params.report.fatigue}/10`,
+    `Pain notes: ${params.report.painNotes || "未填写"}`,
+    `Recovery notes: ${params.report.recoveryNote || "未填写"}`,
     `Next-day readiness: ${params.report.nextDayDecision ? describeTrainingReadiness(params.report.nextDayDecision.trainingReadiness) : "未生成"}`,
     "",
-    "Polish this draft review directly:",
+    "Existing deterministic draft for reference only. Do not copy it mechanically:",
     params.draftReview,
   ].join("\n");
 

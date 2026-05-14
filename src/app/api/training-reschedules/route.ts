@@ -5,7 +5,11 @@ import { materializePlanCalendar } from "@/lib/plan-calendar";
 import { buildPlanSnapshots } from "@/lib/plan-generator";
 import { buildTodayAutofillBrief } from "@/lib/server/domain";
 import { getRepository } from "@/lib/server/repository";
-import { findReportForDate, getCompletedScheduledDateSet } from "@/lib/training-reschedule";
+import {
+  findReportForDate,
+  getCompletedScheduledDateSet,
+  trainingRescheduleErrorMessages,
+} from "@/lib/training-reschedule";
 import { uid } from "@/lib/utils";
 import {
   trainingRescheduleDeleteSchema,
@@ -68,22 +72,22 @@ export async function POST(request: Request) {
     );
 
     if (sourceBrief.calendarSlot === "rest") {
-      throw new Error("鍙兘璋冩暣璁粌鏃ワ紝浼戞伅鏃ヤ笉鑳介『寤躲€?");
+      throw new Error(trainingRescheduleErrorMessages.sourceMustBeTrainingDay);
     }
     if (parsed.targetDate <= parsed.sourceDate) {
-      throw new Error("目标日期必须晚于原训练日。");
+      throw new Error(trainingRescheduleErrorMessages.targetMustBeAfterSource);
     }
     if (completedScheduledDates.has(parsed.sourceDate)) {
-      throw new Error("杩欎釜璁粌鏃ュ凡缁忓畬鎴愶紝涓嶈兘鍐嶈皟鏁淬€?");
+      throw new Error(trainingRescheduleErrorMessages.sourceAlreadyCompleted);
     }
     if (reports.some((report) => report.date === parsed.targetDate)) {
-      throw new Error("鐩爣鏃ユ湡宸茬粡鏈夎缁冭褰曪紝涓嶈兘鍐嶅鍏ユ柊鐨勮缁冩棩銆?");
+      throw new Error(trainingRescheduleErrorMessages.targetAlreadyHasReport);
     }
     if (reschedules.some((item) => item.sourceDate === parsed.sourceDate)) {
-      throw new Error("杩欎釜璁粌鏃ュ凡缁忚璋冩暣杩囦簡銆?");
+      throw new Error(trainingRescheduleErrorMessages.sourceAlreadyRescheduled);
     }
     if (reschedules.some((item) => item.targetDate === parsed.targetDate)) {
-      throw new Error("鐩爣鏃ユ湡宸茬粡鎵挎帴浜嗗埆鐨勮缁冩棩銆?");
+      throw new Error(trainingRescheduleErrorMessages.targetAlreadyReceivesTraining);
     }
 
     const reschedule = {
@@ -119,25 +123,25 @@ export async function PATCH(request: Request) {
     const existing = reschedules.find((item) => item.id === parsed.id);
 
     if (!existing) {
-      throw new Error("娌℃湁鎵惧埌瑕佹敼鏈熺殑椤哄欢璁板綍銆?");
+      throw new Error(trainingRescheduleErrorMessages.updateNotFound);
     }
     if (parsed.targetDate <= existing.sourceDate) {
-      throw new Error("目标日期必须晚于原训练日。");
+      throw new Error(trainingRescheduleErrorMessages.targetMustBeAfterSource);
     }
     if (existing.sourceDate === parsed.targetDate) {
-      throw new Error("鐩爣鏃ユ湡涓嶈兘鍜屽師鏃ユ湡鐩稿悓銆?");
+      throw new Error(trainingRescheduleErrorMessages.targetCannotEqualSource);
     }
     if (completedScheduledDates.has(existing.sourceDate)) {
-      throw new Error("杩欐潯椤哄欢瀵瑰簲鐨勮缁冨凡缁忓畬鎴愶紝涓嶈兘鍐嶆敼鏈熴€?");
+      throw new Error(trainingRescheduleErrorMessages.completedRescheduleCannotUpdate);
     }
     if (findReportForDate(reports, existing.sourceDate)) {
-      throw new Error("杩欐潯椤哄欢宸茬粡鏈夊叧鑱旇褰曪紝涓嶈兘鍐嶆敼鏈熴€?");
+      throw new Error(trainingRescheduleErrorMessages.linkedReportCannotUpdate);
     }
     if (reports.some((report) => report.date === parsed.targetDate)) {
-      throw new Error("鐩爣鏃ユ湡宸茬粡鏈夎缁冭褰曪紝涓嶈兘鍐嶆敼鍒拌繖閲屻€?");
+      throw new Error(trainingRescheduleErrorMessages.targetAlreadyHasReportForUpdate);
     }
     if (reschedules.some((item) => item.id !== existing.id && item.targetDate === parsed.targetDate)) {
-      throw new Error("鐩爣鏃ユ湡宸茬粡鎵挎帴浜嗗埆鐨勮缁冩棩銆?");
+      throw new Error(trainingRescheduleErrorMessages.targetAlreadyReceivesTraining);
     }
 
     const updated = {
@@ -171,13 +175,13 @@ export async function DELETE(request: Request) {
     const existing = reschedules.find((item) => item.id === parsed.id);
 
     if (!existing) {
-      throw new Error("娌℃湁鎵惧埌瑕佸彇娑堢殑椤哄欢璁板綍銆?");
+      throw new Error(trainingRescheduleErrorMessages.deleteNotFound);
     }
     if (completedScheduledDates.has(existing.sourceDate)) {
-      throw new Error("杩欐潯椤哄欢瀵瑰簲鐨勮缁冨凡缁忓畬鎴愶紝涓嶈兘鍙栨秷銆?");
+      throw new Error(trainingRescheduleErrorMessages.completedRescheduleCannotDelete);
     }
     if (findReportForDate(reports, existing.sourceDate)) {
-      throw new Error("杩欐潯椤哄欢宸茬粡鏈夊叧鑱旇褰曪紝涓嶈兘鍙栨秷銆?");
+      throw new Error(trainingRescheduleErrorMessages.linkedReportCannotDelete);
     }
 
     await repository.deleteTrainingReschedule(parsed.id);

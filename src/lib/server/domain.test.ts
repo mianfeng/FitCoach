@@ -432,7 +432,7 @@ describe("adjustment proposal", () => {
 });
 
 describe("daily review presentation", () => {
-  it("builds the strict four-section review format", () => {
+  it("builds a prioritized coaching review format", () => {
     const report: SessionReport = {
       id: "review-1",
       reportVersion: 2,
@@ -466,12 +466,12 @@ describe("daily review presentation", () => {
       nextDayDecision: report.nextDayDecision,
     });
 
-    expect(review).toContain("1. 📊 数据核算");
-    expect(review).toContain("2. 🏋️ 训练评估");
-    expect(review).toContain("3. 🎯 质量评级");
-    expect(review).toContain("4. ⚡ 行动建议");
-    expect(review).toContain("估算摄入");
-    expect(review).toContain("缺口分析");
+    expect(review).toContain("1. 今日结论");
+    expect(review).toContain("2. 关键证据");
+    expect(review).toContain("3. 最大瓶颈");
+    expect(review).toContain("4. 明天执行");
+    expect(review).toContain("饮食完整性");
+    expect(review).toContain("晚餐、练前餐、练后餐");
   });
 
   it("does not escalate isolated nutrition drift to disaster", () => {
